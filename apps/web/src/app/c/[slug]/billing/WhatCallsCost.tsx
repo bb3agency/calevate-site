@@ -1,11 +1,13 @@
 "use client";
 
 import {
+  Calculator,
   CalendarClock,
   Clock3,
   Lock,
   PhoneMissed,
   ReceiptText,
+  Sparkles,
   Waves,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -13,7 +15,9 @@ import type { ReactNode } from "react";
 import { Disclosure, formatINR } from "@/components/ui";
 import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
 import type { CreditPacks } from "@/lib/api/billing";
-import { voiceNotOffered, voiceNotOfferedNotice } from "@/lib/api/rateCard";
+import { headlineVoice, voiceNotOffered, voiceNotOfferedNotice } from "@/lib/api/rateCard";
+import { stepExample } from "@/lib/billingStep";
+import { WORKED_MONTH_CAVEAT, workedMonthRows } from "@/lib/workedMonth";
 
 import type { TierLabels } from "./lots";
 
@@ -79,6 +83,13 @@ import type { TierLabels } from "./lots";
  *    so no input tax credit. Both halves are said here, and the warning is never behind the
  *    click.
  *
+ * 7. **A worked month, all in.** `CreditPacksOut.worked_month`, priced by
+ *    `payment_routes.worked_month_out` in NUMERIC; it says "nothing added" only when an
+ *    attested number price is in the total (`lib/workedMonth.ts`).
+ *
+ * 8. **No charge per AI message.** Dashboard AI meters against the included allowance and
+ *    past it offers one fixed block a person must accept (`billing/ai_quota.py`, G-4).
+ *
  * ## DENSITY — one line each, the sentence behind a click (founder, 4 Sep 2026)
  *
  * The claim is on a line; the paragraph that argues it is one click away in the console's
@@ -113,6 +124,12 @@ export function WhatCallsCost({
   const months = card?.credit_expiry_months ?? null;
   // The step the debit bills in, from the server's card (G8-3); unstated while unknown.
   const step = card?.billing_step_seconds ?? null;
+  // The all-in month, priced by the server from this card; only its headline voice here,
+  // so the strip stays one line per claim.
+  const month =
+    card?.worked_month && labels
+      ? workedMonthRows(card.worked_month, headlineVoice(card), labels).slice(0, 1)
+      : [];
   return (
     <Disclosure
       title="What calls cost"
@@ -158,14 +175,36 @@ export function WhatCallsCost({
           same purchase is drawn down at its other fixed rate.
         </Fact>
 
+        {month.map((row) => (
+          <Fact key={row.voice} icon={<Calculator className="h-4 w-4" aria-hidden />} claim={row.headline}>
+            {row.breakdown} {WORKED_MONTH_CAVEAT}
+          </Fact>
+        ))}
+
         {step && (
           <Fact
             icon={<Clock3 className="h-4 w-4" aria-hidden />}
             claim={`Calls are billed in ${step}-second steps`}
           >
-            Each part-step is rounded up: a 10-second call is billed as {step} seconds.
+            {/* `stepExample` is the pricing page's worked pair, so both read the same. */}
+            Each part-step is rounded up
+            {stepExample(step) ? `: ${stepExample(step)}.` : "."}
           </Fact>
         )}
+
+        <Fact
+          icon={<Sparkles className="h-4 w-4" aria-hidden />}
+          claim="No charge per AI message"
+        >
+          {/* `billing/ai_quota.py`: script writing, teaching and Pip meter against the
+              included allowance; past it the feature blocks and a person may accept ONE
+              fixed block a month, never per-request billing (G-4). Test calls are calls
+              (`agents/paid_test_calls.py`), billed at the normal rates. */}
+          Writing scripts, teaching your agent and asking Pip use the AI help included with
+          your account, never a charge per message. If a month&rsquo;s help runs out, we
+          ask before adding more, and nothing is taken until you accept. After your first
+          payment, test calls are billed like any other call.
+        </Fact>
 
         <Fact
           icon={<PhoneMissed className="h-4 w-4" aria-hidden />}
@@ -205,8 +244,8 @@ export function WhatCallsCost({
           icon={<ReceiptText className="h-4 w-4" aria-hidden />}
           claim="No GST, and no tax invoice"
         >
-          {GST_STATUS_SENTENCE} The price you see is what you pay. Input tax
-          credit cannot be claimed on it.
+          {GST_STATUS_SENTENCE} The price you see is what you pay.{" "}
+          {card?.worked_month?.registered_buyer_note ?? "Input tax credit cannot be claimed on it."}
         </Fact>
       </div>
     </Disclosure>

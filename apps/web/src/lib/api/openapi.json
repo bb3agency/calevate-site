@@ -23524,6 +23524,16 @@
               }
             ],
             "title": "Voice Not Offered Notice"
+          },
+          "worked_month": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkedMonthOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -71884,6 +71894,127 @@
           "job"
         ],
         "title": "WorkIn",
+        "type": "object"
+      },
+      "WorkedMonthOut": {
+        "additionalProperties": false,
+        "description": "A month of calling priced all-in from the live card, so no page does money\narithmetic in a browser. It is an illustration of the card, not a quote: a real month\nbills the seconds actually talked, in `billing_step_seconds` steps.",
+        "properties": {
+          "minutes": {
+            "title": "Minutes",
+            "type": "integer"
+          },
+          "number_inr_per_month": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number Inr Per Month"
+          },
+          "numbers": {
+            "title": "Numbers",
+            "type": "integer"
+          },
+          "platform_fee_inr_per_month": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform Fee Inr Per Month"
+          },
+          "registered_buyer_note": {
+            "title": "Registered Buyer Note",
+            "type": "string"
+          },
+          "voices": {
+            "items": {
+              "$ref": "#/components/schemas/WorkedMonthVoiceOut"
+            },
+            "title": "Voices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "minutes",
+          "numbers",
+          "number_inr_per_month",
+          "platform_fee_inr_per_month",
+          "voices",
+          "registered_buyer_note"
+        ],
+        "title": "WorkedMonthOut",
+        "type": "object"
+      },
+      "WorkedMonthVoiceOut": {
+        "additionalProperties": false,
+        "description": "One voice's worked month, priced on the server from the card in force.",
+        "properties": {
+          "all_in_inr_per_min": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "All In Inr Per Min"
+          },
+          "inr_per_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Inr Per Min",
+            "type": "string"
+          },
+          "pack_id": {
+            "title": "Pack Id",
+            "type": "string"
+          },
+          "talk_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Talk Inr",
+            "type": "string"
+          },
+          "total_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Inr"
+          },
+          "voice": {
+            "enum": [
+              "clear",
+              "studio"
+            ],
+            "title": "Voice",
+            "type": "string"
+          }
+        },
+        "required": [
+          "voice",
+          "pack_id",
+          "inr_per_min",
+          "talk_inr",
+          "total_inr",
+          "all_in_inr_per_min"
+        ],
+        "title": "WorkedMonthVoiceOut",
         "type": "object"
       },
       "WorkspaceFailureOut": {

@@ -31,6 +31,7 @@ import {
 } from "@/components/marketing/pricing/billingMockups";
 import { RateCard } from "@/components/marketing/rateCard";
 import { stepExample, stepPhrase } from "@/lib/billingStep";
+import { WORKED_MONTH_CAVEAT, workedMonthRows } from "@/lib/workedMonth";
 
 import {
   ClosingCta,
@@ -230,6 +231,12 @@ export default async function PricingPage() {
             Every pack, both voices
             <ArrowDown aria-hidden className="h-4 w-4" />
           </Link>
+          {rateCard?.worked_month ? (
+            <Link href="#worked-month" className={PILL_LINK}>
+              What a month costs
+              <ArrowDown aria-hidden className="h-4 w-4" />
+            </Link>
+          ) : null}
           <Link href="#controls" className={PILL_LINK}>
             What the billing screen shows you
             <ArrowDown aria-hidden className="h-4 w-4" />
@@ -312,6 +319,38 @@ export default async function PricingPage() {
           </div>
         </div>
       </section>
+
+      {/* --- A worked month, all in ------------------------------------------- */}
+      {rateCard?.worked_month ? (
+        <section id="worked-month" className="scroll-mt-20 border-t border-line">
+          <div className={`${SHELL} ${SECTION}`}>
+            <Eyebrow>What a month costs</Eyebrow>
+            <h2 className={H2}>One month, everything in it</h2>
+            {/* Priced on the server from the card in force (`payment_routes.worked_month_out`):
+                talk time at the rate of the pack that covers the month, one phone number at
+                its attested price and the platform fee when one is charged. */}
+            <dl className="mt-8 grid max-w-5xl grid-cols-1 gap-4 lg:grid-cols-2">
+              {workedMonthRows(rateCard.worked_month, lead, {
+                clear: tierLabel(rateCard, "clear"),
+                studio: tierLabel(rateCard, "studio"),
+              }).map((row) => (
+                <div key={row.voice} className={CELL}>
+                  <dt className="text-[17px] font-semibold text-pretty text-ink tabular-nums sm:text-xl">
+                    {row.headline}
+                  </dt>
+                  <dd className="mt-2 text-sm text-pretty text-ink-muted tabular-nums sm:text-base">
+                    {row.breakdown}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-6 max-w-3xl space-y-3 text-base text-pretty text-ink-muted">
+              <p>{WORKED_MONTH_CAVEAT} There is no GST on top.</p>
+              <p>{rateCard.worked_month.registered_buyer_note}</p>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       {/* --- 01 Prepaid, caps and the invoice — each promise beside its screen ---- */}
       <section id="controls" className="scroll-mt-20 border-t border-line bg-surface/40">
