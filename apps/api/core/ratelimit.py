@@ -453,6 +453,8 @@ RULES: tuple[Rule, ...] = (
     # The client's sample (D-843), on the same key; also capped per account per IST day.
     Rule("/v1/agents/*/voice-tuning/preview", "costly", _m("POST")),
     Rule("/v1/agents/*/voice-tuning/preview-line", "costly", _m("POST")),
+    # A work's first words, spoken in parts on the same key under the same daily cap.
+    Rule("/v1/agents/*/first-words", "costly", _m("POST")),
     Rule("/v1/ops/secrets/*/test", "costly", _m("POST")),
     Rule("/v1/ops/secrets/kek/rewrap", "costly", _m("POST")),
 )

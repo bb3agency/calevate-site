@@ -56,6 +56,7 @@ import { TEST_CALLS_PAUSED } from "@/lib/api/phoneService";
 import { useClientRealm } from "@/lib/api/session";
 import { useTestRingsFrom } from "@/lib/api/trialCalls";
 
+import { FirstWordsPlayer } from "../agents/first/FirstWordsPlayer";
 import { FallbackNote, RingsFromNote } from "../TestCallStatus";
 import { FoldSection } from "./FoldSection";
 import { SlotsFullProblem, isSlotsFull } from "./SlotHolders";
@@ -201,8 +202,18 @@ export function TestCallForm({
     // Only when the list first arrives; a cleared box stays cleared.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saved.data]);
+  const hearWork = ringsFrom?.lineId
+    ? { kind: "line" as const, id: ringsFrom.lineId }
+    : ringsFrom?.campaignId
+      ? { kind: "campaign" as const, id: ringsFrom.campaignId }
+      : null;
   return (
     <div>
+      {ringsFrom?.agentId && hearWork ? (
+        <div className="mb-3">
+          <FirstWordsPlayer session={session} agentId={ringsFrom.agentId} work={hearWork} version={null} />
+        </div>
+      ) : null}
       {saved.error != null && !loaded && (
         <div className="mb-3">
           <ProblemNotice
@@ -308,7 +319,9 @@ export function TestCallForm({
           variant="secondary-sm"
           status={call.isPending ? "pending" : "idle"}
           pendingLabel="Calling…"
-          disabled={!canWrite || !typed}
+          // A press the server would refuse whatever is typed (no line to ring from) is not
+          // offered; the note under the box says why, in the server's words (W1.7).
+          disabled={!canWrite || !typed || Boolean(from.data?.unavailable)}
           title={refusal}
           waitingFor={paused ? TEST_CALLS_PAUSED : null}
           onClick={() => call.mutate({ number, numberIsMine: mine })}

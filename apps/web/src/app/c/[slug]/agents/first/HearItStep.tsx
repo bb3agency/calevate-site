@@ -6,7 +6,6 @@ import { useEffect, useId, useRef, useState } from "react";
 import {
   ArrowRight,
   Bot,
-  ExternalLink,
   MessageSquare,
   PencilLine,
   PhoneCall,
@@ -43,6 +42,8 @@ import { callIntroFor, trialMinutesLine, workHref, type FirstWork } from "@/lib/
 import { lookup } from "@/lib/lookup";
 
 import { CallStage, limitIcon, type CallPhase } from "./LiveStage";
+import { AGREEMENTS_TICK, AgreementsTick } from "./AgreementsTick";
+import { FirstWordsPlayer } from "./FirstWordsPlayer";
 import { WorkOpening } from "./OpeningLine";
 import { StepScreen, TickRow } from "./shell";
 import { FIRST } from "../../_ui/copy";
@@ -59,6 +60,9 @@ export const HONEST_WORDS = [
     line: "This is version one. You improve it next.",
   },
 ] as const;
+
+/** Said while Pip writes a work that already has a script again (after a language change). */
+export const WORK_REWRITING = "Pip is writing it again. The new words show here in a moment.";
 
 /** A refusal that is a limit of the trial, not a fault: it gets the limit's own frame. */
 export function isLimitRule(rule: string | null | undefined): boolean {
@@ -110,10 +114,11 @@ function NoTestLine({
  * STEP 4, HEAR IT (D-855, Phase 3b): one screen before the call, then the call itself on the
  * stage.
  *
- * Before the call: three honest lines, then only the ticks still outstanding, each its own
- * short tick and never bundled (founder, 23 Oct 2026): each agreement not yet accepted, the
- * no-cold-calls pledge, and "this number is mine". Then the number and the button. No code is
- * sent to the phone.
+ * Before the call: three honest lines, what it says first (with a way to hear it in the page,
+ * no call needed), then only the ticks still outstanding: the agreements not yet accepted as
+ * one tick whose documents open in place (W1.5), the no-cold-calls pledge, and "this number
+ * is mine", each of those two its own. Then the number and the button. No code is sent to
+ * the phone.
  *
  * The button accepts what was ticked (`POST /v1/legal/acceptances` per document, the pledge),
  * then rings the number through the first work's own engine agent: the draft line's test
@@ -229,7 +234,9 @@ function CallYou({
   const docs = (readiness.data?.documents ?? []).filter(needsAction);
   const pledgeOutstanding = pledge.data !== undefined && !pledge.data.is_current;
   const canAccept = readiness.data?.can_accept === true && !viewing;
-  const outstanding = [...docs.map((doc) => `doc:${doc.slug}`), ...(pledgeOutstanding ? ["pledge"] : []), "mine"];
+  // The agreements are one tick (W1.5); each is still accepted on its own at the press, one
+  // ledger row per document and version. The pledge and "this number is mine" stay their own.
+  const outstanding = [...(docs.length > 0 ? [AGREEMENTS_TICK] : []), ...(pledgeOutstanding ? ["pledge"] : []), "mine"];
   const allTicked = outstanding.every((key) => ticked.has(key));
   const busy = acceptAgreement.isPending || acceptPledge.isPending || place.isPending;
   const loading = readiness.isPending || pledge.isPending;
@@ -404,7 +411,19 @@ function CallYou({
       ) : null}
 
       <WorkOpening work={work} lang={agent.language_primary} writeHref={href(workHref(session.orgSlug, work))} />
+      {work.ready && work.writing ? (
+        <p role="status" className="text-meta text-ink-muted">
+          {WORK_REWRITING}
+        </p>
+      ) : null}
       {readyMade ? <p className="text-meta text-ink-muted">{FIRST.workReadyMade}</p> : null}
+      <FirstWordsPlayer
+        session={session}
+        agentId={agent.id}
+        work={work.ready ? work : null}
+        lang={agent.language_primary}
+        version={work.opening}
+      />
 
       <div>
         <label htmlFor={numberId} className="text-heading text-ink">
@@ -439,28 +458,13 @@ function CallYou({
             <ProblemNotice error={readiness.error} onRetry={() => void readiness.refetch()} />
           ) : null}
           <ul className="mt-2 divide-y divide-line overflow-hidden rounded-card border border-line bg-surface">
-            {docs.map((doc) => (
-              <TickRow
-                key={doc.slug}
-                name="agree"
-                checked={ticked.has(`doc:${doc.slug}`)}
-                onChange={(on) => tick(`doc:${doc.slug}`, on)}
-                label={`I accept the ${doc.title}`}
-                extra={
-                  <a
-                    href={doc.href}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="press inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-meta font-medium text-brand-strong hover:bg-brand/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
-                  >
-                    <span>
-                      Read it<span className="sr-only"> (opens in a new tab)</span>
-                    </span>
-                    <ExternalLink aria-hidden className="h-3 w-3" />
-                  </a>
-                }
+            {docs.length > 0 ? (
+              <AgreementsTick
+                docs={docs}
+                checked={ticked.has(AGREEMENTS_TICK)}
+                onChange={(on) => tick(AGREEMENTS_TICK, on)}
               />
-            ))}
+            ) : null}
             {pledgeOutstanding && pledge.data ? (
               <TickRow
                 name="pledge"

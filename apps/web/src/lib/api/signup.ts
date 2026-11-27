@@ -24,7 +24,7 @@
  * is one, the deployment's own build-time answer stands in; see `SIGNUP_OPEN` in `lib/signupConfig.ts`.
  */
 
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { clientRealmSession } from "@/lib/authn/realmSessions";
 
@@ -103,6 +103,30 @@ export function isSignupDeferred(error: unknown): error is ApiProblem {
  */
 export function isSignupUnverified(error: unknown): error is ApiProblem {
   return error instanceof ApiProblem && error.code === "email_not_verified";
+}
+
+export type SlugAvailability = Schemas["SlugAvailabilityOut"];
+
+/** The server's own shape rule (`admin_service.SLUG_RE`): only such an address is worth asking about. */
+export const SLUG_SHAPE = /^[a-z0-9-]{3,40}$/;
+
+/**
+ * Whether a web address is free, asked as it is typed (W1.8), so a taken one is said, with a
+ * free one like it, before Create is pressed. The address goes in the BODY, never the URL, as
+ * the signup does. A free answer is not a hold: the signup checks again.
+ */
+export function useSlugAvailability(slug: string, enabled: boolean): UseQueryResult<SlugAvailability> {
+  return useQuery({
+    queryKey: ["signup", "slug-availability", slug] as const,
+    queryFn: () =>
+      apiRequest<SlugAvailability>(signupSession(), "/v1/auth/signup/slug-availability", {
+        method: "POST",
+        body: { slug },
+      }),
+    enabled: enabled && SLUG_SHAPE.test(slug),
+    staleTime: 30_000,
+    retry: false,
+  });
 }
 
 export function useSignup() {

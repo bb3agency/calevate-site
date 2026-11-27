@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { ArrowRight, CircleAlert, Mail, ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowRight, Check, CircleAlert, Mail, ShieldCheck } from "lucide-react";
 
 import { Providers } from "@/app/providers";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
@@ -34,6 +34,7 @@ import {
   previewSlug,
   slugIsDerivable,
   useSignup,
+  useSlugAvailability,
 } from "@/lib/api/signup";
 
 /**
@@ -281,6 +282,33 @@ function ConfirmYourAddress({
   );
 }
 
+/** How long typing pauses before the address is checked. */
+const SLUG_CHECK_PAUSE_MS = 400;
+
+/** `value` once it has stopped changing for `ms`. */
+function useSettled(value: string, ms: number): string {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSettled(value), ms);
+    return () => window.clearTimeout(timer);
+  }, [value, ms]);
+  return settled;
+}
+
+/** "Free", beside an address the server says nobody holds. */
+function SlugFree({ shown }: { shown: boolean }) {
+  if (!shown) return null;
+  return (
+    <span
+      role="status"
+      className="inline-flex items-center gap-1 text-meta font-medium text-brand-strong dark:text-brand-bright"
+    >
+      <Check aria-hidden className="h-3.5 w-3.5" strokeWidth={2.5} />
+      Free
+    </span>
+  );
+}
+
 function SignupForm() {
   const signup = useSignup();
   // Every refusal is drawn on this page (beside its field, or as the panel that replaces
@@ -304,6 +332,23 @@ function SignupForm() {
   const mustChooseSlug = businessName.trim().length > 0 && !slugIsDerivable(derived);
   const [editingSlug, setEditingSlug] = useState(false);
   const created = signup.data;
+
+  // THE ADDRESS IS CHECKED AS IT IS TYPED (W1.8): a taken one is said before Create, with a
+  // free one like it. Asked once the typing pauses, of the address that would be sent.
+  const candidate = slug.trim() || derived;
+  const settled = useSettled(candidate, SLUG_CHECK_PAUSE_MS);
+  const availability = useSlugAvailability(settled, settled === candidate && candidate !== "");
+  const answer = availability.data?.slug === candidate ? availability.data : undefined;
+  const refused = answer && !answer.available ? answer : null;
+  // The address WE derived is taken: the free one like it is filled in, and said. One the
+  // person typed is theirs to change, so it is offered with a button instead.
+  const [replaced, setReplaced] = useState<string | null>(null);
+  useEffect(() => {
+    if (refused?.reason === "taken" && refused.suggestion && slug.trim() === "") {
+      setReplaced(refused.slug);
+      setSlug(refused.suggestion);
+    }
+  }, [refused, slug]);
 
   // THE ONLY SOURCE OF A SUCCESS SCREEN. `signup.data` is set by TanStack Query only
   // after a 2xx that parsed, so there is no state this component can enter where it
@@ -378,8 +423,16 @@ function SignupForm() {
 
   const problem = signup.error instanceof ApiProblem ? signup.error : null;
   const fields = problem?.fields ?? [];
-  const slugError = valid.message("slug") ?? fieldMessage(fields, "slug");
-  const showSlug = mustChooseSlug || editingSlug || slug !== "" || slugError !== undefined;
+  const takenWords = refused
+    ? refused.reason === "taken"
+      ? refused.suggestion
+        ? `Taken. Try ${refused.suggestion}.`
+        : "Taken. Choose another web address."
+      : (refused.message ?? "Choose another web address.")
+    : undefined;
+  const slugError = valid.message("slug") ?? takenWords ?? fieldMessage(fields, "slug");
+  const showSlug =
+    mustChooseSlug || editingSlug || (slug !== "" && replaced === null) || slugError !== undefined;
   /**
    * Field messages are shown AT their field, so the summary must not repeat them — but a
    * message about a field this form does not render would then vanish entirely, and a
@@ -440,6 +493,11 @@ function SignupForm() {
           className="space-y-5"
           noValidate
           onSubmit={valid.onSubmit(() => {
+            // A taken address is never sent: the field already says so, and what to try.
+            if (refused) {
+              setEditingSlug(true);
+              return;
+            }
             // Everything a prospect typed travels in the POST body. Nothing is ever put
             // in the path or a query string — hard rule 6: a URL lands in access logs,
             // proxy logs and the Referer header of the next request.
@@ -475,7 +533,14 @@ function SignupForm() {
                 autoCapitalize="words"
                 enterKeyHint="next"
                 value={businessName}
-                onChange={(e) => setBusinessName(e.target.value)}
+                onChange={(e) => {
+                  setBusinessName(e.target.value);
+                  // The free address filled in was for the old name.
+                  if (replaced !== null) {
+                    setReplaced(null);
+                    setSlug("");
+                  }
+                }}
                 placeholder="Your business name"
                 className={FIELD}
               />
@@ -495,6 +560,7 @@ function SignupForm() {
                   Your web address:{" "}
                   <code className="font-mono text-ink [overflow-wrap:anywhere]">/c/{derived}</code>
                 </span>
+                <SlugFree shown={answer?.available === true} />
                 <button
                   type="button"
                   className="font-medium text-brand-strong underline underline-offset-2 touch:min-h-11 dark:text-brand-bright"
@@ -536,6 +602,26 @@ function SignupForm() {
             )}
           </Field>
           )}
+          {!showSlug && replaced !== null ? (
+            <p role="status" className="-mt-3 text-meta text-ink-muted [overflow-wrap:anywhere]">
+              /c/{replaced} is taken, so yours is this one.
+            </p>
+          ) : null}
+          {showSlug && refused?.suggestion && slug.trim() !== refused.suggestion ? (
+            <p className="-mt-3">
+              <button
+                type="button"
+                className="press inline-flex min-h-8 items-center rounded-md text-meta font-medium text-brand-strong underline underline-offset-2 touch:min-h-11 dark:text-brand-bright"
+                onClick={() => setSlug(refused.suggestion ?? "")}
+              >
+                Use {refused.suggestion}
+              </button>
+            </p>
+          ) : showSlug && answer?.available === true && slug.trim() !== "" ? (
+            <p className="-mt-3">
+              <SlugFree shown />
+            </p>
+          ) : null}
           {showSlug && mustChooseSlug ? (
             <p className="-mt-3 text-meta text-ink-muted">
               Choose a web address: 3-40 characters of a-z, 0-9 and -.

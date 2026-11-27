@@ -19,16 +19,19 @@ NOT mounted here — the integrator wires these routers into `main.py`.
 
 from __future__ import annotations
 
-from typing import Annotated, Final
+from typing import Annotated, Final, Literal
 from uuid import UUID
 
 from calevate_shared import verticals
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+from apps.api.admin.service import _free_slug_like as free_slug_like
+from apps.api.admin.service import assert_slug_available
 from apps.api.core.auth import client_request_ip, current_identity
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.db.session import admin_session
 from apps.api.tenancy.signup import (
     SelfServeTier,
     assert_email_verified,
@@ -154,6 +157,75 @@ class SignupOut(BaseModel):
     # KYC-verified number. Stated by the API so the UI does not have to encode the
     # compliance rules a second time.
     next_steps: list[str]
+
+
+class SlugAvailabilityOut(BaseModel):
+    """Whether a web address could be taken now. Says taken or free and nothing about who
+    holds it; a free alternative comes with a taken one."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str
+    available: bool
+    #: Why not: `invalid` (not 3-40 of a-z, 0-9 and -), `reserved` or `taken`.
+    reason: Literal["invalid", "reserved", "taken"] | None = None
+    #: The sentence to show beside the field.
+    message: str | None = None
+    #: A free address like it, offered for a taken one.
+    suggestion: str | None = None
+
+
+#: The refusals `assert_slug_available` raises, as this route's reasons.
+_SLUG_REASONS: Final[dict[str, Literal["invalid", "reserved", "taken"]]] = {
+    "invalid_slug": "invalid",
+    "slug_reserved": "reserved",
+    "slug_taken": "taken",
+}
+
+
+class SlugAvailabilityIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: In the body, never the URL: what a prospect types stays out of access logs, as the
+    #: signup itself does.
+    slug: str = Field(min_length=1, max_length=60)
+
+
+@router.post(
+    "/signup/slug-availability",
+    response_model=SlugAvailabilityOut,
+    summary="Whether a workspace web address is free, before signing up",
+    description=(
+        "For the signup form, as the address is typed: free, or taken / reserved / not a valid "
+        "address, with the sentence to show and, for a taken one, a free address like it. "
+        "Asked by a signed-in person with no workspace yet, rate-limited as sign-in is. A free "
+        "answer is not a hold: `POST /v1/auth/signup` checks again and is the authority."
+    ),
+)
+async def slug_availability(payload: SlugAvailabilityIn, user_id: Identity) -> SlugAvailabilityOut:
+    del user_id  # the lock: a signed-in identity, so the check is not an open directory
+    wanted = payload.slug.strip()
+    async with admin_session() as session:
+        try:
+            await assert_slug_available(session, wanted)
+        except ProblemError as refused:
+            reason = _SLUG_REASONS.get(refused.code)
+            if reason is None:
+                raise
+            return SlugAvailabilityOut(
+                slug=wanted,
+                available=False,
+                reason=reason,
+                message=_slug_message(refused),
+                suggestion=await free_slug_like(session, wanted) if reason == "taken" else None,
+            )
+    return SlugAvailabilityOut(slug=wanted, available=True)
+
+
+def _slug_message(refused: ProblemError) -> str | None:
+    fields = refused.fields or []
+    first = fields[0] if fields else None
+    return str(first.get("message")) if isinstance(first, dict) and first.get("message") else None
 
 
 @router.post(
