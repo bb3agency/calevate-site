@@ -43,6 +43,7 @@ import { useScriptVersions } from "@/lib/api/scriptVersions";
 import { useClientRealm } from "@/lib/api/session";
 
 import { LeftOutNotice, lineWarningsOf } from "../agents/[agentId]/script/PipProposal";
+import type { PartKey } from "../agents/[agentId]/script/scriptDiff";
 import { ScriptNeedsFix } from "@/components/scriptChecks/ScriptNeedsFix";
 import { isScriptNeedsFix } from "@/lib/api/scriptChecks";
 
@@ -65,6 +66,13 @@ const ProposalReview = dynamic(
   () => import("../agents/[agentId]/script/ProposalReview").then((m) => m.ProposalReview),
   { loading: () => <Skeleton rows={4} /> },
 );
+const ScriptPartsEditor = dynamic(
+  () => import("../agents/[agentId]/script/ScriptPartsEditor").then((m) => m.ScriptPartsEditor),
+  { loading: () => <Skeleton rows={4} /> },
+);
+
+// The call flow canvas edits the steps and both opening lines, so Edit script leaves them out.
+const CANVAS_PARTS: readonly PartKey[] = ["opening_line", "outbound_opening_line"];
 
 export const MAIN_TASK_HINT = "What should this campaign achieve?";
 export const MAIN_TASK_INFO = "Write it in your own words, as much as you like. Pip writes the script from it.";
@@ -501,16 +509,15 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
 
       {!proposal && editing && (
         <div className="rounded-card border border-line bg-surface p-4">
-          {/* Every part as saved, with Edit / Update / Cancel on each; nothing to add again. */}
-          <ProposalReview
-            editing
+          <ScriptPartsEditor
+            script={script ?? EMPTY_SCRIPT}
+            leaveOut={CANVAS_PARTS}
+            steps={false}
             generatePart={generatePart}
             languages={reviewLanguages}
-            current={EMPTY_SCRIPT}
-            proposal={script ?? EMPTY_SCRIPT}
-            pending={save.isPending ? "apply" : null}
-            onApply={(next) => void keep(next)}
-            onDiscard={closeEditor}
+            saving={save.isPending}
+            onSave={(next) => void keep(next)}
+            onClose={closeEditor}
           />
         </div>
       )}

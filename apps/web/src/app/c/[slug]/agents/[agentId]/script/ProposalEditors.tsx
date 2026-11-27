@@ -5,7 +5,8 @@
  *
  * The owner reads Pip's suggestion and fixes the wording before keeping it, rather than
  * keeping it and then hunting for the same text in the builder. Each editor takes the value
- * and hands back the next one; `ProposalReview` owns the state and runs the builder's own
+ * and hands back the next one; `ProposalReview` (and `ScriptPartsEditor`, which edits a saved
+ * script one part at a time) owns the state and runs the builder's own
  * validation (`scriptModel.validate`) on the result, whose messages arrive here by field.
  *
  * The labels and limits are the builder's (`ScriptSections`, `SectionEditor`), so a field
@@ -33,6 +34,16 @@ export function unshownIssues(issues: Issue[], shown: (field: string) => boolean
 
 const SECTION_FIELDS = /^(name|instruction|sounds_like|branch-\d+|examples-.+)$/;
 const PART_FIELDS = /^(business_line|outbound_purpose|objection-\d+|fact-\d+|example-\d+|pronunciation-\d+)$/;
+
+/** The part a script-wide problem from `validate` belongs to. */
+export const PART_OF_FIELD: { test: RegExp; part: PartKey }[] = [
+  { test: /^business_line$/, part: "business_line" },
+  { test: /^outbound_purpose$/, part: "outbound_purpose" },
+  { test: /^objection-\d+$/, part: "objections" },
+  { test: /^fact-\d+$/, part: "faqs" },
+  { test: /^example-\d+$/, part: "example_exchange" },
+  { test: /^pronunciation-\d+$/, part: "style" },
+];
 
 export function sectionShows(field: string): boolean {
   return SECTION_FIELDS.test(field);

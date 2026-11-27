@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { ProposalReview } from "@/app/c/[slug]/agents/[agentId]/script/ProposalReview";
+import { ScriptPartsEditor } from "@/app/c/[slug]/agents/[agentId]/script/ScriptPartsEditor";
 import { DEFAULT_LIMITS } from "@/app/c/[slug]/agents/[agentId]/script/scriptModel";
 import { BLOCKER_COPY, blockerInPage } from "@/app/c/[slug]/campaigns/blockerCopy";
 import { ScenarioFlow } from "@/app/c/[slug]/campaigns/ScenarioFlow";
@@ -146,18 +146,25 @@ describe("findings in the scenario editor", () => {
 });
 
 describe("findings while editing a saved script", () => {
-  it("marks the step's row with its finding", () => {
+  it("marks the step's row, and shows its finding when the step is opened", () => {
+    render(<ScriptPartsEditor script={SCRIPT} warnings={findingWarnings(FINDINGS)} onSave={() => {}} onClose={() => {}} />);
+    const step = screen.getByRole("button", { name: /^Open the app/ });
+    expect(step.textContent).toContain("1 to check");
+    fireEvent.click(step);
+    expect(screen.getByText("Uses a textbook word.")).toBeTruthy();
+  });
+
+  it("opens the step Show me names", () => {
     render(
-      <ProposalReview
-        editing
-        current={EMPTY_SCRIPT}
-        proposal={SCRIPT}
+      <ScriptPartsEditor
+        script={SCRIPT}
         warnings={findingWarnings(FINDINGS)}
-        onApply={() => {}}
-        onDiscard={() => {}}
+        show={{ stageId: "open" }}
+        onSave={() => {}}
+        onClose={() => {}}
       />,
     );
-    expect(screen.getByText("Uses a textbook word.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Open the app/ }).getAttribute("aria-expanded")).toBe("true");
   });
 });
 
