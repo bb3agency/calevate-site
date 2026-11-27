@@ -204,7 +204,7 @@ def plan_from_owner(
     for step in numbered:
         owned = _owners_step(step, keys[step.key], number_of[step.key], target)
         if placed and not built:
-            owned = replace(owned, intent=without_permission_ask(owned.intent) or owned.intent)
+            owned = replace(owned, intent=without_opening_acts(owned.intent) or owned.intent)
         built.append(owned)
     for side in (step for step in kept if step.number is None):
         home = plan.side_home(side)
@@ -258,6 +258,26 @@ def without_permission_ask(text: str) -> str:
     three times on the call of 26 Nov 2026, while dropping the whole step lost who is calling
     and why (production, 26 Nov 2026, 23:20 IST)."""
     out = _PERMISSION_CLAUSE.sub("", text)
+    out = re.sub(r"\s+([.,;])", r"\1", out)
+    return " ".join(out.split()).replace(",.", ".").strip(" ,")
+
+
+#: A clause of the first step that says who is calling ("right after the opening, say who is
+#: calling and from <Business>"), which a placed call's opening already says
+#: (`call_rules.PLACED_OPENING_RULE`). The business is a capitalised name.
+_WHO_CLAUSE: Final = re.compile(
+    r"(?i:(?:(?:right\s+)?after\s+the\s+opening(?:\s+line)?,?\s*)?"
+    r"(?:,?\s*(?:and\s+|then\s+)*)?say\s+who\s+(?:is\s+calling|you\s+are))"
+    r"(?:\s+(?i:and\s+from)\s+[A-Z][\w'&-]*(?:\s+[A-Z][\w'&-]*)*)?,?"
+)
+
+
+def without_opening_acts(text: str) -> str:
+    """`text` without its clauses asking whether now suits (`without_permission_ask`) and
+    saying who is calling, everything else kept word for word: on a placed call the opening
+    says both, and a first step told to say them again said them again (Rytu Khata,
+    28 Nov 2026)."""
+    out = _WHO_CLAUSE.sub("", without_permission_ask(text))
     out = re.sub(r"\s+([.,;])", r"\1", out)
     return " ".join(out.split()).replace(",.", ".").strip(" ,")
 

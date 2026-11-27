@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import pairwise
 from typing import Final
 
@@ -361,6 +361,96 @@ def owner_plan(text: str | None) -> OwnerPlan | None:
         )
 
     return OwnerPlan(tuple(routed(step) for step in (*steps, *unique_sides)))
+
+
+#: What a placed call's opening line already does, as a plan step's English says it: greet,
+#: introduce the agent, say who is calling, ask whether now suits.
+_OPENING_ACTS: Final = re.compile(
+    r"\b(?:greet\w*(?:\s+(?:them|the\s+\w+))?(?:\s+by\s+(?:their\s+)?name)?|"
+    r"introduce\s+(?:yourself|herself|himself|the\s+agent|the\s+business|us)|"
+    r"identify\s+(?:yourself|herself|himself)|"
+    r"say\s+who\s+(?:you\s+are|is\s+calling|(?:we|i)\s+(?:are|am))|"
+    r"(?:ask|check)\w*(?:\s+them)?\s+(?:if|whether)\s+[^.;]{0,30}?"
+    r"\b(?:talk|speak|good\s+time|convenient|free)\b(?:\s+now)?)",
+    re.IGNORECASE,
+)
+_OPENING_STEP_NAME: Final = re.compile(
+    r"^\s*(?:intro(?:duction|duce\w*)?|greeting|greet|opening|hello|who\s+is\s+calling)\b",
+    re.IGNORECASE,
+)
+#: Words that only place a step ("right after the opening, from the business").
+_PLACING_WORDS: Final = frozenset(
+    {
+        "right",
+        "after",
+        "before",
+        "opening",
+        "line",
+        "first",
+        "from",
+        "then",
+        "with",
+        "their",
+        "them",
+        "name",
+        "calling",
+        "call",
+        "briefly",
+        "politely",
+        "warmly",
+    }
+)
+
+
+def opening_only(step: PlannedStep) -> bool:
+    """Whether a planned step does nothing the opening line of a placed call has not already
+    done: its instruction greets, says who is calling or asks whether now suits (or its name
+    calls it the introduction), and nothing else is left once that is taken out. A
+    capitalised word is a name (the business's) and adds no job of its own."""
+    text = " ".join(step.instruction.split())
+    if not (_OPENING_ACTS.search(text) or _OPENING_STEP_NAME.match(step.name)):
+        return False
+    rest = _OPENING_ACTS.sub(" ", text)
+    jobs = [
+        word
+        for token in rest.split()
+        if (word := token.strip(".,;:!?()\"'"))
+        and len(word) > 3
+        and not word[0].isupper()
+        and word.casefold() not in _PLACING_WORDS
+    ]
+    return not jobs
+
+
+def opening_folded(plan: OwnerPlan) -> OwnerPlan:
+    """`plan` for a placed call without a first numbered step that only redoes the opening
+    (`opening_only`): the opening already says who is calling and why and asks whether now
+    suits, so a step kept for it says it all a second time (Rytu Khata, 27-28 Nov 2026: an
+    "Introduction" step restating the opening before "Why we called" restated it again).
+    Its ways out move to the step after it, ways into it go there too, and the steps after
+    it are numbered one less, so the owner's plan and every check of it agree. Unchanged when
+    fewer than two numbered steps would be left."""
+    numbered = [step for step in plan.steps if step.number is not None]
+    if len(numbered) < 3 or not opening_only(numbered[0]):
+        return plan
+    lead, after = numbered[0], numbered[1]
+    lead_key, after_key = lead.key, after.key
+    have = {(name_key(b.when), name_key(b.goes_to)) for b in after.branches}
+    moved = tuple(
+        b
+        for b in lead.branches
+        if name_key(b.goes_to) != after_key and (name_key(b.when), name_key(b.goes_to)) not in have
+    )
+
+    def kept(step: PlannedStep) -> PlannedStep:
+        branches = tuple(
+            replace(b, goes_to=after.name) if b.goes_to and name_key(b.goes_to) == lead_key else b
+            for b in (step.branches + moved if step is after else step.branches)
+        )
+        number = step.number - 1 if step.number is not None else None
+        return replace(step, branches=branches, number=number)
+
+    return OwnerPlan(tuple(kept(step) for step in plan.steps if step is not lead))
 
 
 #: A case where the person cannot do something ("Cannot log in", "They are unable to find
@@ -822,6 +912,8 @@ __all__ = [
     "PlannedStep",
     "name_key",
     "numbered_items",
+    "opening_folded",
+    "opening_only",
     "owner_plan",
     "plan_block",
     "plan_problems",

@@ -80,8 +80,9 @@ NAME_PLACEMENT_RULE: Final = (
 #: What an outbound agent's opening line holds, as the brief tells every writer of it.
 PLACED_OPENING_BRIEF: Final = (
     "Its opening line is said on calls it places: greet the person by name with "
-    f"{NAME_FIELD} ({NAME_PLACEMENT_RULE}), say who is calling and why in one short "
-    "sentence, then ask only whether they can talk now."
+    f"{NAME_FIELD} ({NAME_PLACEMENT_RULE}), say who is calling and from which business, "
+    "then why this person is called (what they did that led to the call, never the task for "
+    "the call), then ask only whether they can talk now."
 )
 
 
@@ -406,6 +407,14 @@ _CALLER_ACTION: Final = re.compile(_EN_CALLER_ACTION, re.IGNORECASE)
 _SPOKEN_ACTION: Final = _LivePattern(
     lambda: _extend(_EN_CALLER_ACTION, "script_lint._CALLER_ACTION"), re.IGNORECASE
 )
+
+
+def names_caller_action(text: str) -> bool:
+    """Whether `text` names something the person does on their phone, in any call language
+    the action words cover (`call_rules.task_first_problem`)."""
+    return _SPOKEN_ACTION.search(text) is not None
+
+
 #: "Once it opens", "after that": said before an action, it hands over the next step before
 #: the person has done the one it waits on.
 _AFTER_CLAUSE: Final = _LivePattern(
@@ -1957,6 +1966,7 @@ __all__ = [
     "multi_action_line_problems",
     "multi_question_line_problems",
     "name_segment_problem",
+    "names_caller_action",
     "next_steps",
     "offers_call_back",
     "opening_redone_problems",

@@ -45,6 +45,7 @@ from calevate_shared.call_script import (
 from calevate_shared.spoken_guard import english_problem, has_indic_letters, spoken_swapped
 from calevate_shared.spoken_style import style_for
 
+from apps.api.agents.call_rules import PLACED_FIRST_STAGE_RULE
 from apps.api.agents.script_plan import EXAMPLE_LIMITS, PlanStep, ScriptPlan
 from apps.workers.script_assist import JsonAnswer, ScriptBrief, UnusableAnswerError, ask_json
 
@@ -289,6 +290,8 @@ def step_request(ask: StepAsk) -> str:
         lines.append("Details it asks, one a turn: " + "; ".join(step.collect))
     if first:
         lines.append(f"This is the first step. {OPENING_NOTE}")
+        if brief.places_calls():
+            lines.append(f"{PLACED_FIRST_STAGE_RULE}.")
     if close:
         lines.append(CLOSE_NOTE)
     if step.owners and plan.source == "owner":

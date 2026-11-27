@@ -44,7 +44,12 @@ from calevate_shared.spoken_guard import has_indic_letters, latin_word_problem
 
 from apps.api.agents import mistake_lints as ml
 from apps.api.agents import script_shape
-from apps.api.agents.call_rules import opening_redone_line_problems, reacted_line_problems
+from apps.api.agents.call_rules import (
+    opening_redone_line_problems,
+    reacted_line_problems,
+    reason_redone_problems,
+    task_first_problem,
+)
 from apps.api.agents.owner_plan import OwnerPlan, plan_problems
 from apps.api.agents.script_lint import (
     OPENING_FIELDS,
@@ -61,6 +66,7 @@ from apps.api.agents.script_lint import (
     order_problems,
     own_script_line_problems,
     persona_problem,
+    placed_call_opening,
     placeholder_problems,
     promise_problem,
     promo_problem,
@@ -247,6 +253,18 @@ def _opening_shape(script: CallScript, ctx: CheckContext) -> list[str]:
         for path, text in agent_lines(script)
         if path in OPENING_FIELDS
         for problem in opening_shape_problems(path, text, ctx.lint)
+    ]
+
+
+def _task_first(script: CallScript, ctx: CheckContext) -> list[str]:
+    """A placed call's opening that names the task before who is calling and why
+    (`call_rules.task_first_problem`)."""
+    return [
+        problem
+        for path, text in agent_lines(script)
+        if path in OPENING_FIELDS
+        and placed_call_opening(path, ctx.lint)
+        and (problem := task_first_problem(path, text))
     ]
 
 
@@ -703,6 +721,27 @@ CHECKS: Final[tuple[Check, ...]] = (
         "Open with the person's name and one question, reading without the name too.",
         "structure (merge fields, punctuation)",
         _opening_shape,
+    ),
+    Check(
+        "task_first_opening",
+        frozenset({"opening"}),
+        ANY_LANGUAGE,
+        BOTH_LETTERS,
+        "warn",
+        "Say who is calling and why this person is called; the task waits for their yes.",
+        "script_lint._CALLER_ACTION, code (English)",
+        _task_first,
+    ),
+    Check(
+        "reason_redone",
+        frozenset({"instruction"}),
+        ENGLISH,
+        LATIN,
+        "warn",
+        "Go on from their yes with what the call will do for them; never say why again.",
+        "code (English)",
+        _with_lint(reason_redone_problems),
+        flow=True,
     ),
     Check(
         "other_persona",
