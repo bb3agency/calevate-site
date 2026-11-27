@@ -181,14 +181,15 @@ describe("Pip writing a campaign's script", () => {
       [`/v1/agents/${FIXTURE_AGENT_ID}/script`]: noReply(),
     });
     fireEvent.click(await screen.findByRole("button", { name: "Edit script" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Ask Pip to change Opening line" }));
-    const box = screen.getByLabelText("What should Pip change in Opening line?");
+    fireEvent.click(await screen.findByRole("button", { name: /^The goal/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Ask Pip to change The goal" }));
+    const box = screen.getByLabelText("What should Pip change in The goal?");
     const rewrite = screen.getByRole("button", { name: "Rewrite" });
     expect((rewrite as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(box, { target: { value: "Make it warmer." } });
     fireEvent.click(rewrite);
     await waitFor(() =>
-      expect(posted(rendered.calls)).toEqual([{ part: "Opening line", language: "te-IN", instruction: "Make it warmer." }]),
+      expect(posted(rendered.calls)).toEqual([{ part: "The goal", language: "te-IN", instruction: "Make it warmer." }]),
     );
   });
 
@@ -204,12 +205,13 @@ describe("Pip writing a campaign's script", () => {
       [`/v1/agents/${FIXTURE_AGENT_ID}/script`]: noReply(),
     });
     fireEvent.click(await screen.findByRole("button", { name: "Edit script" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Ask Pip to change Opening line" }));
-    fireEvent.change(screen.getByLabelText("What should Pip change in Opening line?"), {
+    fireEvent.click(await screen.findByRole("button", { name: /^The goal/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Ask Pip to change The goal" }));
+    fireEvent.change(screen.getByLabelText("What should Pip change in The goal?"), {
       target: { value: "Make it warmer." },
     });
     fireEvent.click(screen.getByRole("button", { name: "Rewrite" }));
     expect(await screen.findByText("Pip is still writing this campaign's script.")).toBeTruthy();
-    expect(posted(rendered.calls)).toEqual([{ part: "Opening line", language: "te-IN", instruction: "Make it warmer." }]);
+    expect(posted(rendered.calls)).toEqual([{ part: "The goal", language: "te-IN", instruction: "Make it warmer." }]);
   });
 });

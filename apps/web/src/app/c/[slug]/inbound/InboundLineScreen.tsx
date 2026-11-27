@@ -73,12 +73,12 @@ import { useClientRealm } from "@/lib/api/session";
 import { endingLabel } from "@/lib/callReview";
 
 import { LeftOutNotice, lineWarningsOf } from "../agents/[agentId]/script/PipProposal";
+import type { PartKey } from "../agents/[agentId]/script/scriptDiff";
 import { ChecksUnread, ScriptNeedsFix } from "@/components/scriptChecks/ScriptNeedsFix";
 import {
   SHOW_FINDING_EVENT,
   findingWarnings,
   isScriptNeedsFix,
-  scrollToFirstFinding,
   useScriptChecks,
 } from "@/lib/api/scriptChecks";
 import { TestCallForm } from "../campaigns/CampaignBoosters";
@@ -96,11 +96,19 @@ import { SourcePicker, useChosenCount } from "../campaigns/SourcePicker";
 import { LineStatusPill, lineState } from "./lineStatus";
 import { MAIN_TASK_MAX_CHARS } from "@/lib/textLimits";
 
-// Drawn only while Pip's draft waits or the script is being edited: its own chunk.
+// Drawn only while Pip's draft waits or the script is being edited: their own chunks.
 const ProposalReview = dynamic(
   () => import("../agents/[agentId]/script/ProposalReview").then((m) => m.ProposalReview),
   { loading: () => <Skeleton rows={4} /> },
 );
+const ScriptPartsEditor = dynamic(
+  () => import("../agents/[agentId]/script/ScriptPartsEditor").then((m) => m.ScriptPartsEditor),
+  { loading: () => <Skeleton rows={4} /> },
+);
+
+// A line answers calls; it never places one, so the outbound parts are not offered. It has no
+// call flow canvas, so its steps and opening line are edited in Edit script.
+const OUTBOUND_PARTS: readonly PartKey[] = ["outbound_purpose", "outbound_opening_line"];
 
 const NAME_MAX = 80;
 
@@ -401,12 +409,13 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
     () => (checks.isSuccess ? findingWarnings(checks.data.findings) : []),
     [checks.isSuccess, checks.data],
   );
-  // "Show me" from a refusal: open Edit script, where each flagged line is marked.
+  // "Show me" from a refusal: open Edit script on the flagged part, which scrolls to its line.
+  const [showing, setShowing] = useState<{ stageId: string | null } | null>(null);
   useEffect(() => {
-    const show = () => {
+    const show = (event: Event) => {
       if (!script) return;
       setEditing(true);
-      scrollToFirstFinding();
+      setShowing({ stageId: (event as CustomEvent<{ stageId: string | null }>).detail?.stageId ?? null });
     };
     window.addEventListener(SHOW_FINDING_EVENT, show);
     return () => window.removeEventListener(SHOW_FINDING_EVENT, show);
@@ -415,6 +424,7 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
 
   const closeEditor = () => {
     setEditing(false);
+    setShowing(null);
     window.requestAnimationFrame(() => {
       const section = document.getElementById("line-script");
       if (section && section.getBoundingClientRect().top < 0) section.scrollIntoView({ block: "start" });
@@ -534,14 +544,14 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
       {!proposal && editing && (
         <div className="rounded-card border border-line bg-surface p-4">
           {checks.isError && <ChecksUnread onRetry={() => void checks.refetch()} />}
-          <ProposalReview
-            editing
+          <ScriptPartsEditor
+            script={script ?? EMPTY_SCRIPT}
+            leaveOut={OUTBOUND_PARTS}
             warnings={warnings}
-            current={EMPTY_SCRIPT}
-            proposal={script ?? EMPTY_SCRIPT}
-            pending={save.isPending ? "apply" : null}
-            onApply={(next) => keep(next)}
-            onDiscard={closeEditor}
+            show={showing}
+            saving={save.isPending}
+            onSave={(next) => keep(next)}
+            onClose={closeEditor}
           />
         </div>
       )}

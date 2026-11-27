@@ -30,7 +30,7 @@ export type PartKey =
   | "example_exchange"
   | "adherence";
 
-const PARTS: { key: PartKey; label: string }[] = [
+export const PARTS: { key: PartKey; label: string }[] = [
   { key: "business_line", label: "Your business in one line" },
   { key: "identity", label: "Its role" },
   { key: "goal", label: "The goal" },

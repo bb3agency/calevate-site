@@ -23,20 +23,19 @@
  * owner made since is never offered back, and the kept ones are applied to `current`.
  */
 
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { ExpandableText } from "@/components/arc/expandable-text";
 import { ActionButton } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
 import { PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM, type NoticeTone } from "@/components/ui";
-import { INSTRUCTION_MAX } from "@/lib/api/campaignWorkspace";
 import type { CallScript } from "@/lib/api/script";
 import { keepInView } from "@/lib/keepInView";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { placed } from "../../../campaigns/scenarioModel";
-import { PartEditor, SectionFields, partShows, sectionShows, unshownIssues } from "./ProposalEditors";
+import { PART_OF_FIELD, PartEditor, SectionFields, partShows, sectionShows, unshownIssues } from "./ProposalEditors";
 import { ExamplesReadout, WarningLines } from "./StepExamplesEditor";
 import { exampleLanguages, partWarnings, stageWarnings, type LineWarning } from "./stepExamples";
 import {
@@ -49,7 +48,6 @@ import {
   renamedOnly,
   spoken,
   type Change,
-  type PartKey,
 } from "./scriptDiff";
 import {
   DEFAULT_LIMITS,
@@ -61,16 +59,6 @@ import {
   type Section,
 } from "./scriptModel";
 
-/** The row a script-wide problem from `validate` belongs to. */
-const PART_OF_FIELD: { test: RegExp; part: PartKey }[] = [
-  { test: /^business_line$/, part: "business_line" },
-  { test: /^outbound_purpose$/, part: "outbound_purpose" },
-  { test: /^objection-\d+$/, part: "objections" },
-  { test: /^fact-\d+$/, part: "faqs" },
-  { test: /^example-\d+$/, part: "example_exchange" },
-  { test: /^pronunciation-\d+$/, part: "style" },
-];
-
 /** The suggested section a row carries, by its id in the proposal. */
 function suggestedId(change: Change): string | null {
   return change.kind === "section-added" || change.kind === "section-changed" ? change.after.id : null;
@@ -81,136 +69,6 @@ export function whyKey(change: Change): string | null {
   if (change.kind === "part") return change.part;
   const id = suggestedId(change);
   return id ? `stages.${id}` : null;
-}
-
-/** Parts a person adds entries to (founder, 16 Nov 2026: "allow user to add further Q&As").
- * While editing, each has its row even when it holds nothing yet, placed after the parts that
- * come before it. */
-const ADDABLE: { part: PartKey; label: string; after: PartKey[] }[] = [
-  { part: "faqs", label: "Quick facts", after: ["business_line", "identity", "goal", "outbound_purpose", "opening_line", "outbound_opening_line"] },
-  { part: "objections", label: "When callers push back", after: ["faqs", "style"] },
-];
-
-function withAddableParts(changes: Change[]): Change[] {
-  const out = [...changes];
-  for (const { part, label, after } of ADDABLE) {
-    if (out.some((c) => c.kind === "part" && c.part === part)) continue;
-    let at = 0;
-    out.forEach((c, i) => {
-      if (c.kind === "part" && (after.includes(c.part) || ADDABLE.some((a) => a.part === c.part && after.includes(a.part)))) at = i + 1;
-    });
-    out.splice(at, 0, { id: `part:${part}`, kind: "part", part, label, before: "", after: "" });
-  }
-  return out;
-}
-
-export type GeneratePartProps = {
-  /** The languages Pip may write in, the first chosen to start. */
-  languages: { tag: string; name: string }[];
-  initial: string;
-  /** `instruction`: what the owner asked Pip to change in it, when they typed one. */
-  onGenerate: (part: string, language: string, instruction?: string) => void;
-  /** Why Generate waits (a draft being written), or nothing. */
-  reason?: string;
-};
-
-
-/**
- * "Generate in [language]" beside a part's Edit: Pip rewrites that part only, for review.
- * "Ask Pip to change it" opens one short box for what to change ("make it warmer"), sent
- * with the same rewrite (D-1004).
- */
-function GeneratePart({
-  languages,
-  initial,
-  onGenerate,
-  reason,
-  what,
-  held,
-}: GeneratePartProps & { what: string; held?: string }) {
-  const [language, setLanguage] = useState(initial);
-  const [asking, setAsking] = useState(false);
-  const [instruction, setInstruction] = useState("");
-  // The box takes the focus when it opens, so the owner types straight away.
-  const box = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (asking) box.current?.focus();
-  }, [asking]);
-  const waits = held ?? reason;
-  const languageName = languages.find((l) => l.tag === language)?.name ?? language;
-  const boxId = `change-${what.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-  return (
-    <span className="inline-flex flex-wrap items-center gap-x-4 gap-y-2 text-meta">
-      <span className="inline-flex items-center gap-1.5">
-        <button
-          type="button"
-          className={`${TEXT_ACTION} text-meta disabled:opacity-50`}
-          disabled={Boolean(waits)}
-          title={waits}
-          aria-label={`Generate ${what} in ${languageName}`}
-          onClick={() => onGenerate(what, language)}
-        >
-          Generate in
-        </button>
-        <select
-          aria-label={`Language for ${what}`}
-          className="rounded border border-line bg-surface px-1.5 py-0.5 text-meta text-ink"
-          value={language}
-          onChange={(e) => setLanguage(e.target.value)}
-        >
-          {languages.map((l) => (
-            <option key={l.tag} value={l.tag}>
-              {l.name}
-            </option>
-          ))}
-        </select>
-      </span>
-      {!asking ? (
-        <button
-          type="button"
-          className={`${TEXT_ACTION} text-meta disabled:opacity-50`}
-          disabled={Boolean(waits)}
-          title={waits}
-          aria-label={`Ask Pip to change ${what}`}
-          onClick={() => setAsking(true)}
-        >
-          Ask Pip to change it
-        </button>
-      ) : (
-        <span className="flex w-full flex-wrap items-center gap-2">
-          <label htmlFor={boxId} className="sr-only">
-            What should Pip change in {what}?
-          </label>
-          <input
-            id={boxId}
-            ref={box}
-            type="text"
-            maxLength={INSTRUCTION_MAX}
-            placeholder="For example: make it warmer"
-            className="min-w-0 flex-1 basis-full rounded border border-line bg-surface px-2 py-1 text-meta text-ink sm:basis-0"
-            value={instruction}
-            onChange={(e) => setInstruction(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && instruction.trim() && !waits) onGenerate(what, language, instruction.trim());
-              if (e.key === "Escape") setAsking(false);
-            }}
-          />
-          <button
-            type="button"
-            className={PRIMARY_BUTTON_SM}
-            disabled={Boolean(waits) || !instruction.trim()}
-            title={waits}
-            onClick={() => onGenerate(what, language, instruction.trim())}
-          >
-            Rewrite
-          </button>
-          <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setAsking(false)}>
-            Cancel
-          </button>
-        </span>
-      )}
-    </span>
-  );
 }
 
 /** Pip's reason for a part, behind a tap so the list stays short (D-1004). */
@@ -247,8 +105,6 @@ export function ProposalReview({
   gate,
   limits = DEFAULT_LIMITS,
   language = "your callers' language",
-  editing = false,
-  generatePart,
   notes,
   languages = [],
   warnings = [],
@@ -259,13 +115,8 @@ export function ProposalReview({
   /** The checks' warnings on single lines of the draft (`stages.<id>.examples…`), shown on
    *  the line each is about. */
   warnings?: readonly LineWarning[];
-  /** While editing: Pip rewrites one part in a chosen language (a campaign's script). */
-  generatePart?: GeneratePartProps;
   /** Pip's reason for each part it wrote, by `whyKey`, shown behind "Why?" on its row. */
   notes?: Record<string, string>;
-  /** Editing a script already kept, not reviewing a suggestion: every part starts as final
-   * wording with an Edit button, nothing is ticked or labelled "Added", and the button saves. */
-  editing?: boolean;
   current: CallScript;
   /** What the proposal was made from, when that is not `current`. */
   base?: CallScript;
@@ -284,10 +135,7 @@ export function ProposalReview({
   /** Shown above the changes: the server's account of how it was written, unplaced lines. */
   children?: ReactNode;
 }) {
-  const changes = useMemo(() => {
-    const listed = diffScripts(base ?? current, proposal);
-    return editing ? withAddableParts(listed) : listed;
-  }, [base, current, proposal, editing]);
+  const changes = useMemo(() => diffScripts(base ?? current, proposal), [base, current, proposal]);
   // What the owner did to the draft since Pip wrote this: a change to a step they deleted
   // has nothing left to apply to, and one to a step or part they edited replaces their edit.
   const since = useMemo(() => sinceWritten(changes, base, current), [changes, base, current]);
@@ -305,7 +153,7 @@ export function ProposalReview({
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const [tried, setTried] = useState(false);
   // Rows the owner settled with "Update": only the final wording shows.
-  const [settled, setSettled] = useState<Set<string>>(() => (editing ? new Set(changes.map((c) => c.id)) : new Set()));
+  const [settled, setSettled] = useState<Set<string>>(() => new Set());
   // Rows whose "Update" was refused, so their problems show although nothing was typed.
   const [checked, setChecked] = useState<Set<string>>(() => new Set());
   // Each open row as it stood when "Review" was pressed, for "Cancel".
@@ -441,12 +289,10 @@ export function ProposalReview({
     <section aria-labelledby="proposal-heading" className="space-y-4">
       <div>
         <h3 id="proposal-heading" className="text-heading text-ink">
-          {editing ? "Edit your script" : changes.length === 1 ? "1 suggested change" : `${changes.length} suggested changes`}
+          {changes.length === 1 ? "1 suggested change" : `${changes.length} suggested changes`}
         </h3>
-        <p className="mt-1 text-meta text-ink-muted">
-          {editing ? "Press Edit on any part to change it, then save." : "Untick or review any. Kept ones go to your draft, not live."}
-        </p>
-        {!editing && changes.length > 1 && (
+        <p className="mt-1 text-meta text-ink-muted">Untick or review any. Kept ones go to your draft, not live.</p>
+        {changes.length > 1 && (
           <ul aria-label="Changes by kind" className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
             {tally(changes).map((line) => (
               <li key={line.tone}>
@@ -477,22 +323,12 @@ export function ProposalReview({
                 edited={touched.has(change.id)}
                 open={isOpen}
                 settled={isSettled}
-                final={editing}
                 since={since.get(change.id)}
                 onKeep={(next) => setIn(setKept, change.id, next)}
                 onEdit={() => openRow(change.id)}
                 onUpdate={() => update(change)}
                 onCancel={() => cancel(change)}
                 onReset={() => reset(change)}
-                generate={
-                  generatePart && editing ? (
-                    <GeneratePart
-                      {...generatePart}
-                      what={headline(change)}
-                      held={touched.size > 0 ? "Save or close your edits first." : undefined}
-                    />
-                  ) : undefined
-                }
               >
                 {change.kind === "order" ? (
                   <OrderBody change={change} />
@@ -518,7 +354,6 @@ export function ProposalReview({
                     language={language}
                     languages={languages}
                     warnings={warnings}
-                    generate={generatePart && editing ? generatePart : undefined}
                     onChange={(id, patch) => editSection(change, id, patch)}
                   />
                 )}
@@ -533,29 +368,25 @@ export function ProposalReview({
           <ActionButton
             variant="primary-sm"
             status={pending === "apply" ? "pending" : "idle"}
-            pendingLabel={editing ? "Saving…" : "Adding…"}
-            disabled={
-              (editing ? touched.size === 0 : keptCount === 0) || tooMany || Boolean(gate) || pending === "discard"
-            }
+            pendingLabel="Adding…"
+            disabled={keptCount === 0 || tooMany || Boolean(gate) || pending === "discard"}
             title={gate ?? undefined}
             onClick={add}
           >
-            {editing
-              ? "Save changes"
-              : keptCount === offered && offered > 0
-                ? offered === 1
-                  ? "Add it to my draft"
-                  : `Add all ${offered} to my draft`
-                : `Add ${keptCount} of ${offered} to my draft`}
+            {keptCount === offered && offered > 0
+              ? offered === 1
+                ? "Add it to my draft"
+                : `Add all ${offered} to my draft`
+              : `Add ${keptCount} of ${offered} to my draft`}
           </ActionButton>
           <ActionButton
             variant="secondary-sm"
             status={pending === "discard" ? "pending" : "idle"}
-            pendingLabel={editing ? "Close" : "Discarding…"}
+            pendingLabel="Discarding…"
             onClick={onDiscard}
             disabled={pending === "apply"}
           >
-            {editing ? "Close" : "Discard"}
+            Discard
           </ActionButton>
         </div>
         {gate && <p className="text-meta text-ink-muted">{gate}</p>}
@@ -583,18 +414,15 @@ function Row({
   edited,
   open,
   settled,
-  final = false,
   since,
   onKeep,
   onEdit,
   onUpdate,
   onCancel,
   onReset,
-  generate,
   why,
   children,
 }: {
-  generate?: ReactNode;
   /** Pip's reason for this part, when it wrote one. */
   why?: string;
   change: Change;
@@ -602,8 +430,6 @@ function Row({
   edited: boolean;
   open: boolean;
   settled: boolean;
-  /** Part of a script already kept: no keep box and no kind of change, only its name. */
-  final?: boolean;
   since?: Since;
   onKeep: (on: boolean) => void;
   onEdit: () => void;
@@ -635,29 +461,21 @@ function Row({
             : "opacity-55"
       }`}
     >
-      {!final && (
-        <input
-          id={`${id}-keep`}
-          type="checkbox"
-          className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-[var(--brand-strong)]"
-          checked={kept}
-          disabled={gone}
-          onChange={(e) => onKeep(e.target.checked)}
-        />
-      )}
+      <input
+        id={`${id}-keep`}
+        type="checkbox"
+        className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-[var(--brand-strong)]"
+        checked={kept}
+        disabled={gone}
+        onChange={(e) => onKeep(e.target.checked)}
+      />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2">
-          {final ? (
-            <span className="text-body font-medium text-ink">{headline(change)}</span>
-          ) : (
-            <label htmlFor={`${id}-keep`} className="cursor-pointer text-body font-medium text-ink">
-              {headline(change)}
-            </label>
-          )}
+          <label htmlFor={`${id}-keep`} className="cursor-pointer text-body font-medium text-ink">
+            {headline(change)}
+          </label>
           {/* Once updated there is one final version, so nothing says what it changed from. */}
-          {final ? (
-            edited && <span className="text-meta font-medium text-brand-strong">Edited, not saved yet</span>
-          ) : settled ? (
+          {settled ? (
             <span className="text-meta font-medium text-brand-strong">Reviewed by you</span>
           ) : (
             <>
@@ -703,7 +521,6 @@ function Row({
                 {settled ? "Edit" : "Review"}
               </button>
               {why && <WhyNote what={headline(change)} note={why} />}
-              {generate}
               {edited && !settled && (
                 <button type="button" className={`${TEXT_ACTION} text-meta`} onClick={onReset}>
                   Reset to suggestion
@@ -799,7 +616,6 @@ function SectionBody({
   language,
   languages,
   warnings,
-  generate,
   onChange,
 }: {
   change: Exclude<Change, { kind: "part" } | { kind: "order" }>;
@@ -811,7 +627,6 @@ function SectionBody({
   language: string;
   languages: { tag: string; name: string }[];
   warnings: readonly LineWarning[];
-  generate?: GeneratePartProps;
   onChange: (id: string, patch: Partial<Section>) => void;
 }) {
   if (change.kind === "section-removed") {
@@ -868,7 +683,6 @@ function SectionBody({
             languages={languages}
             first={first}
             warnings={warnings}
-            generate={generate}
             onChange={(patch) => onChange(after.id, patch)}
           />
           <RowErrors issues={unshownIssues(issues, sectionShows)} />

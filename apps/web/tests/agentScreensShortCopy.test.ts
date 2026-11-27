@@ -64,6 +64,7 @@ const FILES = [
   "[agentId]/script/SectionEditor.tsx",
   "[agentId]/script/PipProposal.tsx",
   "[agentId]/script/ProposalReview.tsx",
+  "[agentId]/script/ScriptPartsEditor.tsx",
   "[agentId]/script/PutLive.tsx",
   "[agentId]/script/SmallSteps.tsx",
 ] as const;

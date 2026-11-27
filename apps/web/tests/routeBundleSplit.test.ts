@@ -34,11 +34,15 @@ const SPLITS: { route: string; lazy: string[] }[] = [
       "app/c/[slug]/campaigns/CampaignCalls.tsx",
       "app/c/[slug]/campaigns/CampaignQuestions.tsx",
       "app/c/[slug]/agents/[agentId]/script/ProposalReview.tsx",
+      "app/c/[slug]/agents/[agentId]/script/ScriptPartsEditor.tsx",
     ],
   },
   {
     route: "app/c/[slug]/inbound/[lineId]/page.tsx",
-    lazy: ["app/c/[slug]/agents/[agentId]/script/ProposalReview.tsx"],
+    lazy: [
+      "app/c/[slug]/agents/[agentId]/script/ProposalReview.tsx",
+      "app/c/[slug]/agents/[agentId]/script/ScriptPartsEditor.tsx",
+    ],
   },
   { route: "app/c/[slug]/page.tsx", lazy: ["app/c/[slug]/TrialCallPanel.tsx"] },
 ];
