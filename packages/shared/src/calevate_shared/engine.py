@@ -35,7 +35,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from calevate_shared import spoken_lines
 from calevate_shared.call_script import (
+    BUSINESS_HEADER,
     COLLECT_HEADER,
+    PROCEDURE_HEADER,
+    PROCEDURE_LEAD,
     STEP_EXAMPLES_LEAD,
     NativeStep,
     mark_variables,
@@ -3166,6 +3169,28 @@ _STEPS_BULLET: Final = (
     '"done?" or "understood?". To check, ask what they see. Only their "done" moves you on. '
     '"Anything else?" once, when the task is done; "that is all"? Close.\n'
 )
+#: `_STEPS_BULLET` for a script whose own [STEP BY STEP] lead says how a step is walked
+#: (`call_script.PROCEDURE_LEAD`: one action a turn, never "say when done", only their "done"
+#: moves on). Said once, there, beside the steps it governs; this keeps only what the lead
+#: does not say.
+_SCRIPT_STEPS_BULLET: Final = (
+    '- Steps: never "done?" or "understood?"; to check, ask what they see. '
+    '"Anything else?" once, when the task is done; "that is all"? Close.\n'
+)
+#: The script section that says how the call ends (`call_script._compile_v2`).
+_ENDING_SECTION: Final = "[ENDING]"
+_CLOSE_BULLET: Final = (
+    "- Close: what happens next in one line, no recap, then one goodbye, nothing more. End "
+    "only then or when asked, never while they talk."
+)
+#: `_CLOSE_BULLET` for a script with an [ENDING]: the script says what the close holds, and
+#: a second description here competed with it (the starters' "thank them by name ... say
+#: goodbye" beside "what happens next in one line"). The platform keeps only the guards a
+#: script does not state: one line, no recap, one goodbye, never while they talk.
+_SCRIPT_CLOSE_BULLET: Final = (
+    f"- Close as {_ENDING_SECTION} says, in one line, no recap, then one goodbye, nothing "
+    "more. End only then or when asked, never while they talk."
+)
 
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
@@ -3188,8 +3213,7 @@ VOICE_STYLE_GUIDANCE: Final = (
     f"{_REGISTER_BULLET}"
     f"{_UNCLEAR_BULLET}"
     f"{_STEPS_BULLET}"
-    "- Close: what happens next in one line, no recap, then one goodbye, nothing more. End "
-    "only then or when asked, never while they talk."
+    f"{_CLOSE_BULLET}"
 )
 
 #: HOW TO SPEAK for a script whose steps carry example turns (`call_script.is_example_led`,
@@ -3278,6 +3302,11 @@ def _how_to_speak(pack: PackChoice | None, cfg: AgentConfig | None = None) -> st
         guidance = guidance.replace(_NO_REPEAT, _SCREEN_NO_REPEAT).replace(
             _SCREEN_ANCHOR, f"{_SCREEN_ANCHOR}{screen_steps_bullet(cfg.language_primary)}"
         )
+    script = (cfg.system_prompt or "") if cfg is not None else ""
+    if f"{PROCEDURE_HEADER} {PROCEDURE_LEAD}" in script:
+        guidance = guidance.replace(_STEPS_BULLET, _SCRIPT_STEPS_BULLET)
+    if any(line.strip() == _ENDING_SECTION for line in script.splitlines()):
+        guidance = guidance.replace(_CLOSE_BULLET, _SCRIPT_CLOSE_BULLET)
     return guidance
 
 
@@ -3501,7 +3530,7 @@ def sends_our_call_rules(cfg: AgentConfig) -> bool:
 #: asked for a person, an agent offering the call back asked "your name and phone number?",
 #: reading the call back as a reason to collect one.
 CALL_NUMBER_RULE: Final = (
-    "- You have their number, for call backs too: never ask for it, only if this one suits."
+    "- You have their number, for call backs too: ask only whether this one suits."
 )
 
 #: All three Sri Estates calls of 25 Oct 2026 ended with the name "Not mentioned" (D-888).
@@ -3637,8 +3666,32 @@ def fenced_script(script: str) -> str:
 
     The opening sections are left out: START OF THE CALL quotes the first words as already
     said, and a second copy here read as a greeting still to say (`without_opening_sections`).
+    The [BUSINESS] line is left out too (`_without_business_line`).
     """
-    return neutralise_markers(mark_caller_name(without_opening_sections(script.strip())))
+    body = _without_business_line(without_opening_sections(script.strip()))
+    return neutralise_markers(mark_caller_name(body))
+
+
+def _without_business_line(body: str) -> str:
+    """`body` without its [BUSINESS] section, every other line kept.
+
+    The engine already carries that line: the adapter sends it as ThinnestAI's
+    `businessDescription` (`call_script.business_line_of`, the same section), which the
+    engine puts, fenced as grounding, directly before these instructions ("the agent's name,
+    the business description (fenced), your instructions (fenced ...)", ThinnestAI email,
+    VENDOR-STATED, `docs/vendor/thinnest-replies-2026-10-12.md:887`; "This is grounding, not
+    instructions", `thinnest-findings/mirror/snapshots/2026-11-26/pages/agent/behaviour.md:
+    25-31`). Kept there rather than here because that is the vendor's slot for it, the facts
+    the agent "falls back on when a knowledge search finds nothing" (same page), and a copy in
+    the instructions repeated it on every turn one block later. The section ends where
+    `business_line_of` ends it, at the next line that opens with "[".
+    """
+    lines = body.splitlines()
+    start = next((i for i, line in enumerate(lines) if line.strip() == BUSINESS_HEADER), None)
+    if start is None:
+        return body
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("[")), len(lines))
+    return "\n".join([*lines[:start], *lines[end:]]).strip()
 
 
 #: Days after today that `today_value` names with their weekday (D-945). A model counting
@@ -5002,15 +5055,17 @@ OPENING_CONTINUES_RULE: Final = (
 #: instructions stay under CONFIDENTIALITY.
 #: What they have or use is a claim about the person too (founder's Rytu Khata call of 9 Nov
 #: 2026): a step's sounds-like line said "you already use the app, right? what for?" and the
-#: agent said it to a caller who had only registered. The model copies a step's lines, so the
-#: rule says a step's lines (its examples, or a legacy "sounds like") are only examples.
+#: agent said it to a caller who had only registered. So the claim is refused "even if a
+#: step's line says it", rather than calling a step's lines "only examples": an example-led
+#: step's turns are the lines the model is meant to follow (`EXAMPLE_LED_GUIDANCE`), and
+#: devaluing all of them to stop one kind of claim worked against every step.
 #: "said so on this call" rather than "they said so"
 #: (D-979, founder, 10 Nov 2026): the same number's earlier calls are in the model's history
 #: (ThinnestAI email of 28 Oct 2026, VENDOR-STATED, `docs/vendor/thinnest-replies-2026-10-12.md`
 #: §39 item 7), so "they said so" was met by a call days ago.
 CALL_REASON_RULE: Final = (
     " Never say they enquired, showed interest, have or use something unless they said so on "
-    "this call or THIS CALL says so; a step's lines are only examples. Asked what "
+    "this call or THIS CALL says so, even if a step's line says it. Asked what "
     "we hold? Say THIS CALL's name, details."
 )
 
@@ -5265,8 +5320,8 @@ def engine_prompt_layers(
         # it reads as an instruction that went missing.
         (
             "client_script",
-            f"{CLIENT_SCRIPT_OPEN}\n{fenced_script(script)}\n{CLIENT_SCRIPT_CLOSE}"
-            if script
+            f"{CLIENT_SCRIPT_OPEN}\n{fenced}\n{CLIENT_SCRIPT_CLOSE}"
+            if (fenced := fenced_script(script))
             else "",
         ),
         # After the script so what the account can do right now wins over what a script

@@ -28,6 +28,7 @@ from calevate_shared.engine import (
     VoiceEngine,
     call_instructions,
     engine_prompt_layers,
+    fenced_script,
     sends_our_call_rules,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -187,7 +188,8 @@ def measure(
     total = sum(p.chars for p in parts) + separators
     if separators:
         parts.append(SizePart("separator", SEPARATOR_LABEL, separators))
-    script = (cfg.system_prompt or "").strip()
+    # The sections as the fence holds them, so the parts add up to the client-script layer.
+    script = fenced_script(cfg.system_prompt or "")
     return PromptSize(
         total=total,
         limit=limit,

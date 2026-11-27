@@ -299,8 +299,10 @@ def test_an_inbound_lines_engine_agent_that_places_calls_fits_the_same_margins()
 #: is never counted done and each step's invitation is in new words, paid for by dropping
 #: '"OK" after one: the next', "a question" for "your question" and one bullet joined to
 #: another.
-PER_CALL_MAX = 7_833
-PER_CALL_ONE_LANGUAGE_MAX = 6_958
+#: 27 Nov 2026 (said-once pass) CUT both to the measured sizes (7,484/6,710): the caps had
+#: drifted above what the layers needed, and "you have their number" says only what to ask.
+PER_CALL_MAX = 7_484
+PER_CALL_ONE_LANGUAGE_MAX = 6_710
 
 
 def _platform_only(languages_extra: list[str]) -> AgentConfig:
