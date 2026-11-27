@@ -34,6 +34,7 @@ script check.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
@@ -950,6 +951,14 @@ def _at(node: Any, path: str) -> Any:
     return node
 
 
+#: A step's plan: its instruction and its step-by-step actions. Often the owner's own words
+#: (`script_plan.owners_text`), and a repair runs without the owner's request, so it does not
+#: know their rules: on 27 Nov 2026 the repair one minute after a kept Rytu Khata draft
+#: rewrote eight owner instructions, dropped the iPhone path and added the call backs the
+#: owner had forbidden. A finding there stays a warning for the owner, never a rewrite.
+_STEP_PLAN: Final = re.compile(r"^stages\.\d+\.(?:instruction|procedure\.\d+\.action)$")
+
+
 def repairable(script: CallScript, finding: str) -> bool:
     """Whether a line repair (`script_writer.write_script`, `lines`) may rewrite the place
     `finding` names: one line, or the whole script's steps for a detail no step asks
@@ -958,6 +967,7 @@ def repairable(script: CallScript, finding: str) -> bool:
     path = finding.partition(": ")[0]
     return (
         not path.startswith("step_outcomes")
+        and not _STEP_PLAN.match(path)
         and bool(_fix_paths([finding]))
         and (path == "script" or isinstance(_node(script, path), str))
     )

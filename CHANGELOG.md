@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.94 — 27-Nov-2026
+
+- The automatic repair after a script is kept no longer rewrites a step's instruction or its
+  step-by-step actions. It had replaced the owner's own step text and added call backs the
+  owner had forbidden. A problem found there stays a warning for the owner.
+
 ## 0.5.93 — 27-Nov-2026
 
 - What the agent reads on a call is shorter and says each thing once: a step's instruction,

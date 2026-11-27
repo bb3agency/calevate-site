@@ -283,3 +283,27 @@ async def test_the_lines_checks_endpoint_shows_the_size() -> None:
     # The test engine has no box; ThinnestAI's is `test_the_target_is_well_under_the_box`'s.
     assert size["limit_chars"] is None
     assert size["fits"] is True
+
+
+def test_a_repair_never_rewrites_a_steps_plan() -> None:
+    """FAILS IF: the automatic repair may rewrite a step's instruction or an action (27 Nov
+    2026: the repair right after a kept Rytu Khata draft rewrote eight owner instructions and
+    added call backs the owner had forbidden). Spoken lines stay repairable."""
+    from apps.api.agents.script_checks import repairable
+    from calevate_shared.call_script import CallScript, ConversationStage, ProcedureStep
+
+    script = CallScript(
+        schema_version=2,
+        stages=[
+            ConversationStage(
+                id="s1",
+                name="Install",
+                instruction="Open Chrome, type the site and tap Install app.",
+                sounds_like="Open Chrome.",
+                procedure=[ProcedureStep(action="Open Chrome.", wait_for="It is open.")],
+            )
+        ],
+    )
+    assert not repairable(script, "stages.0.instruction: several actions")
+    assert not repairable(script, "stages.0.procedure.0.action: several actions")
+    assert repairable(script, "stages.0.sounds_like: several actions")
