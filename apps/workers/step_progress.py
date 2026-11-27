@@ -8,8 +8,8 @@ account whose owner has not turned Pip on is not read (`account_content_may_reac
 and its calls keep the extraction's own reading.
 
 A REACHED CLAIM NEEDS THE PERSON'S OWN WORDS. Each `reached` names a caller line and quotes
-it; the code checks the line is the caller's and the quote is in it word for word
-(`campaign_script_ask.quoted_in`), the campaign script review's evidence rule, and a claim
+it; the code checks the line is the caller's and the quote is copied from it
+(`campaign_script_ask.copied_in`), the campaign script review's evidence rule, and a claim
 that fails is stored as `unclear`. A `moved_on_turn` must name an agent line. The model also
 maps the choices of each detail the call notes onto the steps, where the choices follow them;
 the mapping is a property of the script and the details, and which choice is noted is then
@@ -52,7 +52,7 @@ from apps.api.crm.step_progress import (
     stored_progress,
 )
 from apps.api.db.session import tenant_session
-from apps.workers.campaign_script_ask import quoted_in
+from apps.workers.campaign_script_ask import copied_in
 from apps.workers.redaction import redact
 from apps.workers.script_assist import JsonAnswer, ask_json
 
@@ -64,13 +64,21 @@ TIMEOUT_S: Final = 40.0
 #: the head is cut, never the tail.
 TRANSCRIPT_CHARS: Final = 24_000
 _QUOTE_MAX: Final = 300
+#: How many lines either side of the one the model named a quote is looked for in.
+_NEAR_LINES: Final = 2
 
 ASK: Final = (
     "You read a finished phone call against the steps of the script the agent followed. For "
     "each step under STEPS, say whether its outcome was reached. reached: only when the "
     "person's own words show it; give caller_turn, the number of that person's line, and "
-    "quote, words copied exactly from that line. The agent saying it is done, or assuming it, "
-    "does not count. not_reached: the call never got there; give moved_on_turn, the number "
+    "quote, words copied exactly from that line in the letters it is written in, never "
+    "translated or transliterated. A short reply such as done, I did it, or I can see it, "
+    "right after the agent asked for that step's action, is the person's own words showing "
+    "it. The agent saying it is done, or assuming it, does not count. A step can have "
+    "several scenarios: scenario is the one the call was in when the step's outcome was "
+    "reached, else the last one of that step it went through, named as under STEPS; empty "
+    "for a step with one scenario or none gone through. "
+    "not_reached: the call never got there; give moved_on_turn, the number "
     "of the agent line that went on to a later step while it was not reached and the person "
     "had not refused, could not do it now or was not the right person, else -1. unclear: the "
     "call does not show either way. Use -1 and an empty quote where a number or quote does "
@@ -101,9 +109,17 @@ _FORMAT: Final[dict[str, object]] = {
                             "state": {"type": "string", "enum": list(STEP_STATES)},
                             "caller_turn": {"type": "integer"},
                             "quote": {"type": "string"},
+                            "scenario": {"type": "string"},
                             "moved_on_turn": {"type": "integer"},
                         },
-                        "required": ["step", "state", "caller_turn", "quote", "moved_on_turn"],
+                        "required": [
+                            "step",
+                            "state",
+                            "caller_turn",
+                            "quote",
+                            "scenario",
+                            "moved_on_turn",
+                        ],
                         "additionalProperties": False,
                     },
                 },
@@ -155,8 +171,17 @@ def steps_of(script: CallScript) -> dict[int, list[ConversationStage]]:
     return dict(sorted(out.items()))
 
 
+def step_scenarios(script: CallScript) -> dict[int, tuple[str, ...]]:
+    """Each step's scenario names, the main one first: a side step comes after the step it
+    is a scenario of in the script's order (`call_script.outcomes_by_stage`)."""
+    return {n: tuple(s.name for s in stages) for n, stages in steps_of(script).items()}
+
+
 def step_names(script: CallScript) -> dict[int, str]:
-    return {n: ", ".join(s.name for s in stages) for n, stages in steps_of(script).items()}
+    """Each step by its main scenario's name. A step is not named by all its scenarios
+    joined: a call goes through one of them, and the joined name read on the call page as
+    if the caller had been through both."""
+    return {n: names[0] for n, names in step_scenarios(script).items()}
 
 
 def redacted_lines(turns: Sequence[TranscriptTurn]) -> dict[int, tuple[str, str]]:
@@ -180,7 +205,11 @@ def request_text(
     said = {o.step: o.outcome for o in script.step_outcomes}
     steps = []
     for n, stages in steps_of(script).items():
-        names = ", ".join(s.name for s in stages)
+        names = (
+            stages[0].name
+            if len(stages) == 1
+            else "scenarios: " + "; ".join(s.name for s in stages)
+        )
         aim = said.get(n) or " ".join(s.instruction for s in stages)
         steps.append(redact(f"Step {n} ({names}): {aim}").text)
     details = [
@@ -206,6 +235,26 @@ def request_text(
     )
 
 
+def _quoted_turn(quote: str, turn: object, lines: dict[int, tuple[str, str]]) -> int | None:
+    """The caller line `quote` is copied from (`copied_in`): the line named, else the nearest
+    caller line within `_NEAR_LINES` of it, so a line numbered one off still stands on the
+    words it quotes. None when no caller line there holds the quote."""
+    if not quote or not isinstance(turn, int) or isinstance(turn, bool):
+        return None
+    near = sorted(range(turn - _NEAR_LINES, turn + _NEAR_LINES + 1), key=lambda i: abs(i - turn))
+    for idx in near:
+        line = lines.get(idx)
+        if line is not None and line[0] == "caller" and copied_in(quote, line[1]):
+            return idx
+    return None
+
+
+def _scenario(row: dict[str, Any], scenarios: Sequence[str]) -> str | None:
+    """The scenario the model says the call went through, as the script names it."""
+    said = " ".join(str(row.get("scenario") or "").split()).casefold()
+    return next((s for s in scenarios if " ".join(s.split()).casefold() == said), None)
+
+
 def checked(
     raw: dict[str, Any],
     *,
@@ -213,11 +262,15 @@ def checked(
     lines: dict[int, tuple[str, str]],
     spec: ExtractionSchemaSpec,
     outcomes: Sequence[BusinessOutcome] = (),
+    scenarios: dict[int, tuple[str, ...]] | None = None,
 ) -> StepProgress:
     """What the code can stand behind: a `reached` whose caller line and quote check out, a
     `moved_on_turn` that is an agent line, every step present (`unclear` when not judged),
     a detail's choices mapped onto steps (`_fields`), and a goal step and outcome keys that
-    name real steps and real outcomes."""
+    name real steps and real outcomes.
+
+    `names` is each step's main scenario (`step_names`); a step with several (`scenarios`)
+    is named by the one the model says the call went through when it is one of them."""
     last = max(names) if names else 0
     found: dict[int, StepReading] = {}
     rows = raw.get("steps")
@@ -229,19 +282,19 @@ def checked(
             continue
         if state not in STEP_STATES:
             continue
-        turn = row.get("caller_turn")
         quote = " ".join(str(row.get("quote") or "").split())[:_QUOTE_MAX]
         moved = row.get("moved_on_turn")
-        reading = StepReading(step=step, name=names[step], state="unclear")
+        name = _scenario(row, (scenarios or {}).get(step, ())) or names[step]
+        reading = StepReading(step=step, name=name, state="unclear")
         if state == "reached":
-            line = lines.get(turn) if isinstance(turn, int) else None
-            if line is not None and line[0] == "caller" and quote and quoted_in(quote, line[1]):
-                reading = StepReading(step, names[step], "reached", turn_idx=turn)
+            turn = _quoted_turn(quote, row.get("caller_turn"), lines)
+            if turn is not None:
+                reading = StepReading(step, name, "reached", turn_idx=turn)
         elif state == "not_reached":
             agent = isinstance(moved, int) and lines.get(moved, ("", ""))[0] == "agent"
             reading = StepReading(
                 step,
-                names[step],
+                name,
                 "not_reached",
                 moved_on_turn=moved if agent and step < last else None,
             )
@@ -327,13 +380,15 @@ async def judge_call_steps(
     lines = redacted_lines(turns)
     if not any(speaker == "caller" for speaker, _ in lines.values()):
         return None
-    names = step_names(script)
+    names, scenarios = step_names(script), step_scenarios(script)
     feature = ASSIST_FEATURE_STEP_PROGRESS
 
     def parse(raw: dict[str, Any]) -> StepProgress | None:
         if not isinstance(raw.get("steps"), list):
             return None
-        return checked(raw, names=names, lines=lines, spec=spec, outcomes=outcomes)
+        return checked(
+            raw, names=names, lines=lines, spec=spec, outcomes=outcomes, scenarios=scenarios
+        )
 
     try:
         answer: JsonAnswer[StepProgress] = await ask_json(
@@ -388,4 +443,5 @@ __all__ = [
     "redacted_lines",
     "request_text",
     "step_names",
+    "step_scenarios",
 ]

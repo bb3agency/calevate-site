@@ -10,6 +10,7 @@ went with the one-pass writer (DESIGN §3, 26 Nov 2026).
 
 from __future__ import annotations
 
+import difflib
 import unicodedata
 from collections.abc import Sequence
 from typing import Any, Final, Literal
@@ -208,12 +209,19 @@ TOO_LONG_RULE: Final = (
 )
 
 
+#: Invisible marks that sit inside a word and never between two: the zero-width non-joiner
+#: and joiner (Telugu print puts a non-joiner after a virama, which a model copying the word
+#: may leave out or add), the soft hyphen and the word joiner. Dropped, not read as a space,
+#: or one word written two ways would be one word on one side and two on the other.
+_IN_WORD_MARKS: Final = frozenset({"‌", "‍", "­", "⁠"})
+
+
 def _plain(text: str) -> str:
     """`text` with case, punctuation and spacing gone, in any script: letters, marks (Telugu
     vowel signs are marks) and digits kept, so a quote copied with other spacing still
     matches."""
     kept = (
-        ch if unicodedata.category(ch)[0] in "LMN" else " "
+        "" if ch in _IN_WORD_MARKS else ch if unicodedata.category(ch)[0] in "LMN" else " "
         for ch in unicodedata.normalize("NFC", text.casefold())
     )
     return " ".join("".join(kept).split())
@@ -227,6 +235,36 @@ def quoted_in(evidence: str, sources: str) -> bool:
     return bool(said) and f" {said} " in f" {_plain(sources)} "
 
 
+#: `copied_in`: the share of a quote's letters that must be found in order in one stretch
+#: of the source, and how much longer than the quote that stretch may be.
+_COPY_SHARE: Final = 0.9
+_COPY_STRETCH: Final = 1.2
+
+
+def copied_in(evidence: str, sources: str) -> bool:
+    """`quoted_in`, or `evidence` is a copy of one stretch of `sources` with a few letters
+    different: a model copying words in a script other than Latin (Telugu, Hindi) changes a
+    letter here and there, a spelling variant or a vowel sign, and a strict match then reads
+    a quote it did copy as invented. A quote under ten characters must match exactly, because
+    one letter there can be the whole meaning (a negation), and a translation or a
+    transliteration shares no letters with the line and never passes."""
+    if quoted_in(evidence, sources):
+        return True
+    said, source = _plain(evidence), _plain(sources)
+    if not said or not source:
+        return False
+    blocks = [
+        b
+        for b in difflib.SequenceMatcher(None, said, source, autojunk=False).get_matching_blocks()
+        if b.size
+    ]
+    if not blocks:
+        return False
+    found = sum(b.size for b in blocks)
+    stretch = blocks[-1].b + blocks[-1].size - blocks[0].b
+    return found >= _COPY_SHARE * len(said) and stretch <= _COPY_STRETCH * len(said)
+
+
 __all__ = [
     "BUDGET_SHARE",
     "FLOW_PART",
@@ -238,6 +276,7 @@ __all__ = [
     "TOO_LONG_RULE",
     "Tone",
     "budget_of",
+    "copied_in",
     "quoted_in",
     "situation_block",
     "task_steps_note",

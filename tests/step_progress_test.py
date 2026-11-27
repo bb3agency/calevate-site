@@ -36,7 +36,8 @@ from tests.step_outcomes_test import _campaign, _script
 
 pytestmark = pytest.mark.anyio
 
-NAMES = {1: "Remembers the app", 2: "Installs it, Already has it", 3: "Logs in"}
+NAMES = {1: "Remembers the app", 2: "Installs it", 3: "Logs in"}
+SCENARIOS = {1: ("Remembers the app",), 2: ("Installs it", "Already has it"), 3: ("Logs in",)}
 SPEC = ExtractionSchemaSpec(
     fields=[
         ExtractionField(
@@ -103,10 +104,85 @@ def test_a_reached_step_needs_the_persons_own_words() -> None:
     lines = judge.redacted_lines(_turns())
     raw = _raw()
     raw["steps"][0]["quote"] = "I know the app well"  # not in the line: a paraphrase
-    raw["steps"][1]["caller_turn"] = 2  # the agent's line, not the person's
+    # The agent's line, quoting the agent: no caller line near it says it.
+    raw["steps"][1].update(caller_turn=2, quote="Please install it from Play Store")
     got = judge.checked(raw, names=NAMES, lines=lines, spec=SPEC)
     assert [s.state for s in got.steps] == ["unclear", "unclear", "not_reached"]
     assert got.furthest is None
+
+
+def test_a_line_numbered_one_off_stands_on_the_caller_line_it_quotes() -> None:
+    raw = _raw()
+    raw["steps"][1]["caller_turn"] = 2  # the agent's line; the quote is the next line's
+    got = judge.checked(raw, names=NAMES, lines=judge.redacted_lines(_turns()), spec=SPEC)
+    assert (got.steps[1].state, got.steps[1].turn_idx) == ("reached", 3)
+
+
+#: A call in a script other than Latin: each step's action, and the person's short reply.
+_TELUGU = [
+    ("agent", "ఇప్పుడు ఆ బటన్ మీద నొక్కండి అండి."),
+    ("caller", "ఆ నొక్కానండి."),
+    ("agent", "ఇప్పుడు స్క్రీన్ మీద ఐకాన్ కనిపిస్తుందా అండి?"),
+    ("caller", "యాప్‌లో కనపడుతుంది."),
+    ("agent", "ఇప్పుడు ఆ బాక్సులో మీ నంబర్ను ఎంటర్ చేయండి అండి."),
+    ("caller", "ఓకే చేశానండి, వచ్చింది వర్క్ అయింది యాడ్ అయింది మొత్తం."),
+]
+
+
+def _reached(step: int, turn: int, quote: str, scenario: str = "") -> dict[str, Any]:
+    return {
+        "step": step,
+        "state": "reached",
+        "caller_turn": turn,
+        "quote": quote,
+        "scenario": scenario,
+        "moved_on_turn": -1,
+    }
+
+
+def _telugu_states(*rows: dict[str, Any]) -> list[str]:
+    turns = [
+        TranscriptTurn(call_id="c", idx=i, speaker=s, text=t)  # type: ignore[arg-type]
+        for i, (s, t) in enumerate(_TELUGU)
+    ]
+    got = judge.checked(
+        {"steps": list(rows)}, names=NAMES, lines=judge.redacted_lines(turns), spec=SPEC
+    )
+    return [s.state for s in got.steps]
+
+
+def test_a_quote_in_telugu_letters_checks_out_as_the_model_copies_it() -> None:
+    """FAILS IF: a caller's Telugu "done" reads "Not clear" because the model's copy of it
+    differs from the transcript by an invisible join mark or a letter."""
+    assert _telugu_states(
+        _reached(1, 1, "ఆ నొక్కానండి"),
+        # The line has the join mark Telugu print puts after a virama; the copy has none.
+        _reached(2, 3, "యాప్లో కనపడుతుంది"),
+        # One vowel sign left out of a long quote.
+        _reached(3, 5, "ఓకే చేశానండి, వచ్చింది వర్క్ అయింది యాడ్ అయింద మొత్తం"),
+    ) == ["reached", "reached", "reached"]
+
+
+def test_a_quote_the_line_does_not_hold_is_still_refused() -> None:
+    assert _telugu_states(
+        _reached(1, 1, "aa nokkanandi"),  # transliterated
+        _reached(2, 3, "It is showing"),  # translated
+        _reached(3, 5, "చేయలేదు"),  # words of a different line
+    ) == ["unclear", "unclear", "unclear"]
+    # A short quote must match exactly: one letter there can be the whole meaning.
+    assert _telugu_states(_reached(2, 3, "కనపడదు")) == ["unclear", "unclear", "unclear"]
+
+
+def test_a_step_is_named_by_the_scenario_the_call_went_through() -> None:
+    """FAILS IF: a step with a side step reads as both, "Installs it, Already has it"."""
+    lines = judge.redacted_lines(_turns())
+    raw = _raw()
+    raw["steps"][1]["scenario"] = " already HAS it "
+    got = judge.checked(raw, names=NAMES, lines=lines, spec=SPEC, scenarios=SCENARIOS)
+    assert [s.name for s in got.steps] == ["Remembers the app", "Already has it", "Logs in"]
+    raw["steps"][1]["scenario"] = "Not a scenario of step 2"
+    got = judge.checked(raw, names=NAMES, lines=lines, spec=SPEC, scenarios=SCENARIOS)
+    assert got.steps[1].name == "Installs it"
 
 
 def test_the_reading_keeps_what_checks_out() -> None:
@@ -154,14 +230,32 @@ def test_a_step_left_before_its_outcome_is_a_mistake_on_the_call() -> None:
             StepReading(3, "c", "reached", 9),
         )
     )
-    assert call_mistakes.step_mistakes(progress) == {"moved_on_unconfirmed": 4}
-    assert call_mistakes.step_mistakes(None) == {}
-    assert (
-        call_mistakes.step_mistakes(StepProgress(steps=(StepReading(1, "a", "not_reached"),))) == {}
-    )
+    turns = [
+        TranscriptTurn(call_id="c", idx=i, speaker="agent" if i % 2 == 0 else "caller", text="ok")
+        for i in range(10)
+    ]
+    assert call_mistakes.step_mistakes(progress, turns) == {"moved_on_unconfirmed": 4}
+    assert call_mistakes.step_mistakes(None, turns) == {}
+    unnamed = StepProgress(steps=(StepReading(1, "a", "not_reached"),))
+    assert call_mistakes.step_mistakes(unnamed, turns) == {}
     assert "moved_on_unconfirmed" in turn_checks.JOB_KINDS
     lesson = call_mistakes.LESSONS["moved_on_unconfirmed"]
     assert lesson.label and lesson.instead
+
+
+def test_a_call_the_agent_said_nothing_on_has_moved_on_from_nothing() -> None:
+    """FAILS IF: a reading whose moved-on line is not a spoken agent line of this transcript
+    (a re-run replaced it) is counted as "Moved on before the step was done"."""
+    progress = StepProgress(steps=(StepReading(1, "a", "not_reached", moved_on_turn=2),))
+    callers_only = [
+        TranscriptTurn(call_id="c", idx=i, speaker="caller", text="Hello?") for i in range(4)
+    ]
+    assert call_mistakes.step_mistakes(progress, callers_only) == {}
+    silent_agent = [
+        TranscriptTurn(call_id="c", idx=i, speaker=s, text=t)  # type: ignore[arg-type]
+        for i, (s, t) in enumerate([("caller", "Hello?"), ("caller", "Hello?"), ("agent", " ")])
+    ]
+    assert call_mistakes.step_mistakes(progress, silent_agent) == {}
 
 
 # --- the database seam ----------------------------------------------------------------------
@@ -245,7 +339,7 @@ async def test_the_reading_is_stored_once_and_reused(
     assert len(asked) == 1
     # The request names the steps by their outcomes and the details' choices; words are
     # redacted before they leave.
-    assert "Step 2 (Installs it, Already has it): Step 2 is done." in asked[0]
+    assert "Step 2 (scenarios: Installs it; Already has it): Step 2 is done." in asked[0]
     assert "app_status (App status): Not interested; Remembers; Installed; Logged in" in asked[0]
     async with tenant_session(tenant_id) as session:
         stored = await stored_progress(session, call_id)
@@ -289,7 +383,7 @@ async def test_the_pipeline_notes_the_furthest_step_over_the_models_guess(
         (2, "reached", 3),
         (3, "not_reached", None),
     ]
-    assert detail.steps[1].name == "Installs it, Already has it"
+    assert detail.steps[1].name == "Installs it"
 
 
 async def test_a_model_failure_leaves_the_extraction_standing(

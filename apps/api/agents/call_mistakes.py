@@ -197,13 +197,22 @@ LESSONS["moved_on_unconfirmed"] = Lesson(
 )
 
 
-def step_mistakes(progress: StepProgress | None) -> dict[str, int]:
-    """`moved_on_unconfirmed` on the first agent line that left a step before its outcome."""
+def step_mistakes(progress: StepProgress | None, turns: Sequence[SpokenTurn]) -> dict[str, int]:
+    """`moved_on_unconfirmed` on the first agent line that left a step before its outcome.
+
+    The line must be a spoken agent line of the transcript the mistakes are read on: the
+    stored reading is reused when a re-run replaces the transcript (D-187), so its turn
+    numbers can name a caller line, a line with no words or no line at all, and a call on
+    which the agent said nothing has moved on from nothing."""
     if progress is None:
         return {}
-    turns = [s.moved_on_turn for s in progress.steps if s.state == "not_reached"]
-    moved = [t for t in turns if t is not None]
-    return {"moved_on_unconfirmed": min(moved)} if moved else {}
+    spoken = {t.idx for t in turns if t.speaker == "agent" and t.text.strip()}
+    moved = [
+        s.moved_on_turn
+        for s in progress.steps
+        if s.state == "not_reached" and s.moved_on_turn in spoken
+    ]
+    return {"moved_on_unconfirmed": min(t for t in moved if t is not None)} if moved else {}
 
 
 # --- end of the step-outcome block -----------------------------------------------------------

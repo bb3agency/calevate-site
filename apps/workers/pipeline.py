@@ -1547,7 +1547,7 @@ async def _owner_insights_stage(
                         turns=snapshot.transcript,
                         unheard=likely_cut_off(snapshot.transcript),
                     )
-                found.update(call_mistakes.step_mistakes(progress))
+                found.update(call_mistakes.step_mistakes(progress, snapshot.transcript))
                 found.update(call_mistakes.lookup_mistakes(lookups))
                 await call_mistakes.record_call_mistakes(
                     tenant_id=tenant_id,
