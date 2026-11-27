@@ -28,7 +28,9 @@ from calevate_shared.call_script import (
     ScriptPolicies,
     StageBranch,
     StepOutcome,
+    fixed_ending,
     stage_steps,
+    without_fixed_ending,
 )
 from calevate_shared.extraction import whole_call_detail
 from calevate_shared.spoken_guard import empty_title, without_empty_title
@@ -348,6 +350,23 @@ def pronounced(script: CallScript, context: LintContext) -> CallScript:
     return script.model_copy(update={"style": style})
 
 
+def without_fixed_endings(script: CallScript) -> CallScript:
+    """`script` with no order in its tone or address form to end every sentence or reply
+    alike (`call_script.fixed_ending`), the rest of each kept. Mended on every write, the
+    owner's style included: a rewrite keeps the style it was given (`script_plan.skeleton`),
+    and the compiled prompt drops such an order anyway, so the stored one only misleads."""
+    style = script.style
+    if not (fixed_ending(style.tone) or fixed_ending(style.address_form)):
+        return script
+    mended = style.model_copy(
+        update={
+            "tone": without_fixed_ending(style.tone),
+            "address_form": without_fixed_ending(style.address_form),
+        }
+    )
+    return script.model_copy(update={"style": mended})
+
+
 def _mine(script: CallScript, base: CallScript | None) -> set[str]:
     """The ids of the steps Pip wrote or changed: all of them in a new script."""
     if base is None:
@@ -361,9 +380,10 @@ def settled(
 ) -> CallScript:
     """`script` with its structure mended (see the module): step numbers, outcomes of steps it
     lacks, Pip's unreached steps, ways out that only name the next step, titles with no name,
-    the details each step notes, call-back times, ways out stated only in words, and
-    spellings of taught words. A raw script is returned as it is. Validated again, so a mend
-    that would break a rule never reaches the owner."""
+    the details each step notes, call-back times, ways out stated only in words, spellings
+    of taught words, and a style that orders one ending for every sentence. A raw script is
+    returned as it is. Validated again, so a mend that would break a rule never reaches the
+    owner."""
     if script.raw_override is not None:
         return script
     mine = _mine(script, base)
@@ -377,6 +397,7 @@ def settled(
     out = time_taken(out, mine, context.call_back)
     out = ways_out_wired(out, mine, context.manifest)
     out = pronounced(out, context)
+    out = without_fixed_endings(out)
     return CallScript.model_validate(out.model_dump())
 
 
@@ -414,6 +435,7 @@ __all__ = [
     "ways_out_wired",
     "without_echo_ways",
     "without_empty_titles",
+    "without_fixed_endings",
     "without_judged_asks",
     "without_stray_outcomes",
 ]

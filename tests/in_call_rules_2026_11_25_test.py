@@ -87,7 +87,7 @@ def test_a_short_word_after_an_action_is_not_taken_as_done() -> None:
     lead's "only once what they say meets its Wait for, or says done"."""
     assert '"OK" after one' not in VOICE_STYLE_GUIDANCE
     assert "never guess, pick for them or count it done" in VOICE_STYLE_GUIDANCE
-    assert 'Only their "done" moves you on;' in PROCEDURE_LEAD
+    assert 'A bare "OK" to it is not done: ask what they see.' in PROCEDURE_LEAD
 
 
 def test_a_reply_that_does_not_show_it_is_answered_by_asking_what_they_see() -> None:

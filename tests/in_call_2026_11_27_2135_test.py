@@ -30,7 +30,8 @@ from calevate_shared.extraction import ExtractionSchemaSpec
 
 
 def test_a_step_needs_what_they_see_and_an_early_stop_is_never_all_done() -> None:
-    assert 'then ask what they see; a bare "done" is not it.' in OUTCOMES_LEAD
+    assert "once they answer, ask what they see now" in OUTCOMES_LEAD
+    assert 'a bare "done" is not it.' in OUTCOMES_LEAD
     assert "Never say it is all done: say what is left, and take it as a later." in OUTCOMES_LEAD
 
 

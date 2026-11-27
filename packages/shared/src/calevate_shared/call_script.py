@@ -672,6 +672,39 @@ class SpeakingStyle(BaseModel):
         return out
 
 
+#: An order to end every sentence or reply the same way ("end sentences with andi", "add ji at
+#: the end of every reply"), in a style's tone or address form. How to address the person is
+#: a word to use with their name, not a fixed ending: an ending ordered on every sentence
+#: contradicts HOW TO SPEAK's "no two replies start or end alike", and on the 28 Nov 2026
+#: call "Use {{lead_name}} garu for the name and end sentences with andi." ended nearly every
+#: reply alike. English, since both fields are instructions to the agent.
+_ENDING_UNIT: Final = r"(?:sentences?|replies|reply|lines?|turns?|answers?|responses?)"
+_EVERY: Final = r"(?:(?:every|each|all|your|the)\s+)?"
+_FIXED_ENDING: Final = re.compile(
+    r"(?:\s*[,;]\s*|\s+)?(?:\b(?:and|then)\s+)?(?:\balways\s+)?(?:"
+    rf"\b(?:end|finish|close)s?\s+{_EVERY}{_ENDING_UNIT}\s+with\b[^.;,]*"
+    rf"|\b(?:add|put|say|use)\s+[^.;,]*?\s+at\s+the\s+end\s+of\s+{_EVERY}{_ENDING_UNIT}\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def fixed_ending(text: str) -> bool:
+    """Whether a style instruction orders one ending for every sentence or reply."""
+    return bool(_FIXED_ENDING.search(text))
+
+
+def without_fixed_ending(text: str) -> str:
+    """`text` without any order to end every sentence or reply alike (`fixed_ending`), the
+    rest kept; "" when nothing else was said."""
+    if not fixed_ending(text):
+        return text.strip()
+    out = _FIXED_ENDING.sub("", text.strip())
+    out = re.sub(r"\s+([.,;!?])", r"\1", " ".join(out.split()))
+    out = re.sub(r"^[\s.,;:!?]+", "", out)
+    return "" if not re.search(r"\w", out) else out
+
+
 class CanvasPosition(BaseModel):
     """Where a section sits on the builder's canvas. Layout only: never compiled."""
 
@@ -1122,12 +1155,23 @@ PROCEDURE_HEADER: Final = "[STEP BY STEP]"
 #: The turn ends on the action itself, not on an invitation to say when it is done: on the
 #: Varsha call of 26 Nov 2026 (16:03) every step ended "tell me when done", so the person was
 #: asked before they could act, and their "after what should I tell you?" was taken as an
-#: answer and the next step given. A "what do I do?" gets the same step again, shorter, never
+#: answer and the next step given. A "what do I do?" gets the same action again, shorter, never
 #: the next one.
+#: "The same action", not "the same step": a step holds several actions, and on the founder's
+#: call of 28 Nov 2026 (00:48) a "what did you say?" was answered with the action and the one
+#: after it joined. Joining is named outright, examples included, because the model joined
+#: actions the list keeps apart. A bare "OK" acknowledges, it does not report: the same call
+#: moved on at four of them. No sentence here says what DOES move on: "only their done moves
+#: you on" read as any word doing so, against the outcome lead's 'a bare "done" is not it'.
 PROCEDURE_LEAD: Final = (
-    'One action a turn, then stop; never ask them to say when done. Only their "done" moves you '
-    "on; asked what to do, the same step, shorter. Stuck? Help."
+    "One action a turn, never two together, even where an example joins them; then stop. "
+    'Never ask them to tell you when it is done or whether it worked. A bare "OK" to it is '
+    "not done: ask what they see. Asked what to do? That action again, shorter. Stuck? Help."
 )
+#: Opens a step's actions where the step itself lists them (`_with_actions`): the engine step
+#: is the text the model is following at that moment, so the two rules it broke on the 28 Nov
+#: 2026 call (two actions joined, a bare "OK" taken as done) sit on the list itself.
+ACTIONS_LEAD: Final = 'One a turn, never two; "OK" to a thing to do is not done:'
 #: Said once above every step's example turns, in an example-led script (any stage with
 #: `examples`, DESIGN §3.5). Under `PROCEDURE_HEADER` each step keeps only its name, the
 #: actions its engine step could not hold, and its turns: the step's intent, actions and
@@ -1290,10 +1334,27 @@ def examples_pointer(name: str, *, actions: bool = False) -> str:
 ONE_DETAIL_PER_TURN: Final = "Ask for one of these details per turn."
 
 
+#: "The user confirms ..." at the head of a small step's "Done when". Written that way the
+#: criterion reads as a confirmation to ask for ("User confirms the expense is saved" stood
+#: before the Save action whose turn asked "will you tell me whether it saved?", 28 Nov 2026).
+#: What is left says what is true once it is done, which is what the agent listens for. An
+#: "if" or "whether" clause keeps its verb: without it, it no longer says what is listened for.
+_CONFIRMS: Final = re.compile(r"^(?:the\s+)?\w+\s+confirms\s+(?:that\s+)?(?!if\b|whether\b)", re.I)
+
+
+def done_when(wait_for: str) -> str:
+    """A small step's "Done when" as compiled: without a leading "The user confirms"."""
+    text = wait_for.strip()
+    rest = _CONFIRMS.sub("", text, count=1)
+    if not rest or rest == text:
+        return text
+    return rest[:1].upper() + rest[1:]
+
+
 def _action_line(i: int, step: ProcedureStep) -> str:
     action = step.action.rstrip(".")
-    done = f" {DONE_WHEN_LEAD} {step.wait_for.rstrip('.')}." if step.wait_for else ""
-    return f"{i}. {action}.{done}"
+    wait = done_when(step.wait_for).rstrip(".")
+    return f"{i}. {action}." + (f" {DONE_WHEN_LEAD} {wait}." if wait else "")
 
 
 def _with_actions(stage: ConversationStage, detail: str) -> str:
@@ -1306,7 +1367,7 @@ def _with_actions(stage: ConversationStage, detail: str) -> str:
         return detail
     pointer = examples_pointer(stage.name, actions=True)
     actions = " ".join(_action_line(i, s) for i, s in enumerate(stage.procedure, 1))
-    inline = detail.replace(pointer, f"One a turn: {actions} {examples_pointer(stage.name)}")
+    inline = detail.replace(pointer, f"{ACTIONS_LEAD} {actions} {examples_pointer(stage.name)}")
     return inline if len(inline) <= STAGE_DETAIL_MAX else detail
 
 
@@ -1371,6 +1432,14 @@ def _step_detail(stage: ConversationStage, outcome: str = "") -> str:
 #: "later", which the call-back rule (or, on an account without call backs, the opening's
 #: "later" rule) already answers, so no second call-back rule is written here.
 OUTCOMES_HEADER: Final = "[STEP OUTCOMES]"
+#: How a step's outcome is checked, in both leads. The check is a question about what they
+#: see, asked once they have answered; "ask them to and wait, then ask what they see" was
+#: said on the 28 Nov 2026 call as one turn ending "will you tell me whether it saved?", a
+#: request to report back that the step-by-step lead forbids.
+CHECK_WHAT_THEY_SEE: Final = (
+    "once they answer, ask what they see now, never whether it worked or to tell you; "
+    'a bare "done" is not it.'
+)
 STOPPED_EARLY_RULE: Final = (
     "They stop before the last step? Never say it is all done: say what is left, and take it "
     "as a later."
@@ -1379,9 +1448,8 @@ OUTCOMES_LEAD: Final = (
     'A step\'s "Go on only when" is the one outcome it must reach. Its scenarios are examples '
     "of how the call may go, not the only ways: reach the outcome however the person answers, "
     "then go on to the next step, and never before. It is reached only when what they say "
-    "shows it, never assumed or said for "
-    "them: if it needs them to look or do something, ask them to and wait, then ask what "
-    'they see; a bare "done" is not it. '
+    "shows it, never assumed or said for them: if it needs them to look or do something, "
+    f"say that and stop; {CHECK_WHAT_THEY_SEE} "
     "If it clearly cannot be reached (they refuse, cannot do it now, or are not "
     "the right person), take the step's way out for that, else its Otherwise. " + STOPPED_EARLY_RULE
 )
@@ -1389,8 +1457,7 @@ OUTCOMES_LEAD: Final = (
 #: gets none filled in, `campaigns/step_outcomes`): said after the step list, since there is
 #: no outcome section to hold them, and only there, so a script never reads them twice.
 STEPS_LEAD: Final = (
-    "A step that needs them to look or do something is done only when they say what they "
-    'see; a bare "done" is not it. ' + STOPPED_EARLY_RULE
+    f"A step that needs them to look or do something: {CHECK_WHAT_THEY_SEE} " + STOPPED_EARLY_RULE
 )
 #: The outcome as a step carries it, when there is room.
 OUTCOME_IN_STEP: Final = "Go on only when: {outcome}."
@@ -1610,10 +1677,10 @@ def _compile_v2(
 
     style = script.style
     style_lines: list[str] = []
-    if style.tone.strip():
-        style_lines.append(f"Tone: {style.tone.strip()}")
-    if style.address_form.strip():
-        style_lines.append(f"Address callers as: {style.address_form.strip()}")
+    if tone := without_fixed_ending(style.tone):
+        style_lines.append(f"Tone: {tone}")
+    if address := without_fixed_ending(style.address_form):
+        style_lines.append(f"Address callers as: {address}")
     # "natural" is what the platform's register section already says, so only a departure
     # from it is written here. `sample_phrases` is not compiled: a list of phrases to use
     # beside HOW TO SPEAK's "no two replies start or end alike" is two rules about the same
@@ -1776,12 +1843,30 @@ def _example_lines(
     lines: list[str] = []
     for tag in tags:
         said, name = stage.examples[tag], names.get(tag, tag)
-        lines += [f"{name}: {_quote(t)}" for t in _rotated(said.turns, f"{seed}{stage.id}")]
+        turns = _spoken_turns(said.turns, tag)
+        lines += [f"{name}: {_quote(t)}" for t in _rotated(turns, f"{seed}{stage.id}")]
         for field, label in _MOMENT_LABELS:
             text = getattr(said, field)
-            if text and (field != "busy" or first_step):
+            if text and (field != "busy" or first_step) and not _textbook(text, tag):
                 lines.append(f"{name}, {label}: {_quote(text)}")
     return lines
+
+
+def _textbook(text: str, tag: str) -> bool:
+    # Imported here: `spoken_guard` imports this module.
+    from calevate_shared.spoken_guard import textbook_words
+
+    return bool(textbook_words(text, tag))
+
+
+def _spoken_turns(turns: Sequence[str], tag: str) -> list[str]:
+    """`turns` without those using a word the language's spoken-style list calls textbook,
+    while one without remains. A turn is copied more closely than the register line beside
+    it is followed: on the 28 Nov 2026 call a word that line names was said in the same
+    phrase as an earlier version of that campaign's turns held it. The script check names
+    such a turn to the owner (`formal_words`)."""
+    clean = [turn for turn in turns if not _textbook(turn, tag)]
+    return clean or list(turns)
 
 
 def _step_blocks(stages: Sequence[ConversationStage], languages: Sequence[str], seed: str) -> str:
@@ -1810,7 +1895,7 @@ def _procedures(stages: Sequence[ConversationStage]) -> str:
         for i, step in enumerate(stage.procedure, 1):
             line = f"{i}. {step.action}"
             if step.wait_for:
-                line += f" {DONE_WHEN_LEAD} {step.wait_for}"
+                line += f" {DONE_WHEN_LEAD} {done_when(step.wait_for)}"
             lines.append(line)
         blocks.append("\n".join(lines))
     return "\n".join(blocks)
@@ -2062,11 +2147,13 @@ def compile_call_script(
 
 
 __all__ = [
+    "ACTIONS_LEAD",
     "ACTIONS_POINTER",
     "BUILTIN_END_CALL_RULE",
     "BUSINESS_HEADER",
     "CALLER_NAME_SLOT",
     "CALL_BACK",
+    "CHECK_WHAT_THEY_SEE",
     "CODE_MIX_SENTENCES",
     "COLLECT_HEADER",
     "DEFAULT_FAQ_FALLBACK",
@@ -2143,9 +2230,11 @@ __all__ = [
     "business_line_of",
     "call_backs_withheld",
     "compile_call_script",
+    "done_when",
     "examples_pointer",
     "extract_variable_names",
     "fill_spoken_line",
+    "fixed_ending",
     "is_example_led",
     "mark_variables",
     "native_steps",
@@ -2168,6 +2257,7 @@ __all__ = [
     "substitute_variables",
     "unplaced_lines",
     "upgrade_to_v2",
+    "without_fixed_ending",
     "without_opening_sections",
     "without_outline",
     "without_placed_opening",

@@ -204,6 +204,7 @@ def platform_prompt_revision() -> str:
         ConversationStage,
         ProcedureStep,
         ScenarioQa,
+        SpeakingStyle,
         StepExamples,
         StepOutcome,
         compile_call_script,
@@ -245,12 +246,15 @@ def platform_prompt_revision() -> str:
                 name="S",
                 instruction="I",
                 step=1,
-                procedure=[ProcedureStep(action="A", wait_for="W")],
+                # A criterion the compile rewords (`call_script.done_when`).
+                procedure=[ProcedureStep(action="A", wait_for="The user confirms W")],
                 scripts={primary: "L"},
                 qa=[ScenarioQa(question="Q", answer="R")],
             )
         ],
         step_outcomes=[StepOutcome(step=1, outcome="O")],
+        # A style that orders one ending, which the compile leaves out (`without_fixed_ending`).
+        style=SpeakingStyle(tone="T", address_form="A and end sentences with B"),
     )
     parts.append(compile_call_script(guided))
     # Steps with no outcome get the step checks after the step list (`STEPS_LEAD`) instead.

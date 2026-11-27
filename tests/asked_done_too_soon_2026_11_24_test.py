@@ -244,7 +244,7 @@ def test_every_agent_is_told_never_to_ask_if_done() -> None:
     """The invitation this test once pinned went too (Varsha call of 26 Nov 2026): a step's turn
     ends on the action."""
     assert 'never "say when done", never "done?"' in VOICE_STYLE_GUIDANCE
-    assert "One action a turn, then stop;" in PROCEDURE_LEAD
+    assert "then stop. Never ask them to tell you when it is done" in PROCEDURE_LEAD
     cfg = AgentConfig(
         tenant_id="t",
         agent_id="a",

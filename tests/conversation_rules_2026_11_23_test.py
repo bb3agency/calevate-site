@@ -96,11 +96,11 @@ def test_a_job_scripts_steps_outcomes_and_answers_say_when_to_move_on() -> None:
     body = compile_call_script(_guided_script())
     prompt = compose_engine_prompt(_config("outbound", body))
     # A step moves on only on their word that it is done; a "what?" gets the same step again.
-    assert 'Only their "done" moves you on;' in PROCEDURE_LEAD
-    assert "the same step, shorter." in PROCEDURE_LEAD
+    assert 'A bare "OK" to it is not done: ask what they see.' in PROCEDURE_LEAD
+    assert "That action again, shorter." in PROCEDURE_LEAD
     # An outcome is reached by what the person says, and a look-and-see one is asked for.
     assert "It is reached only when what they say shows it, never assumed or said" in OUTCOMES_LEAD
-    assert "if it needs them to look or do something, ask them to and wait" in OUTCOMES_LEAD
+    assert "if it needs them to look or do something, say that and stop;" in OUTCOMES_LEAD
     # A scenario's answer is given only to its own question.
     assert "give an answer only when they ask its question." in SCENARIO_LEAD
     for lead in (PROCEDURE_LEAD, OUTCOMES_LEAD, SCENARIO_LEAD):
