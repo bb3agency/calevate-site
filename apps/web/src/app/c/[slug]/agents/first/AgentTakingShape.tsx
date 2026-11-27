@@ -103,7 +103,7 @@ export function AgentTakingShape({
               <WorkOpening work={work} lang={language ?? agent?.language_primary ?? "en-IN"} label="Says first" />
             </div>
           ) : (
-            <p className="text-meta text-ink-faint">Chosen after its name and voice.</p>
+            <p className="text-meta text-ink-faint">Picked on the first step.</p>
           )}
         </Row>
         <Row id="about" title="What it knows" pieces={pieces} fresh={fresh}>
@@ -268,7 +268,7 @@ function JobsLine({ jobs }: { jobs: readonly FirstRunJob[] }) {
   const cards = sortJobs(jobs)
     .map((job) => jobCard(job))
     .filter((card) => card !== null);
-  if (cards.length === 0) return <p className="text-meta text-ink-faint">Chosen on What first.</p>;
+  if (cards.length === 0) return <p className="text-meta text-ink-faint">Picked on the first step.</p>;
   return (
     <ul className="space-y-1">
       {cards.map((card) => (

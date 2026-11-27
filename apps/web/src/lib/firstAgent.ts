@@ -68,11 +68,15 @@ export interface FirstAgentState {
   work?: FirstWork | null;
 }
 
-/** The four steps on the rail, in order (founder, 16 Nov 2026). */
+/**
+ * The three steps on the rail, in order (redesign of 28 Nov 2026, PLAN §5). What the agent
+ * does first is picked on the first card beside the brief, so "What first?" is no step of
+ * its own; its screen (`work`) is shown only when the card's pick was lost, under Name and
+ * voice.
+ */
 export const STEPS = [
   { id: "about", label: "About your business" },
   { id: "agent", label: "Name and voice" },
-  { id: "work", label: "What first?" },
   { id: "hear", label: "Hear it" },
 ] as const;
 export type StepId = (typeof STEPS)[number]["id"];
@@ -84,19 +88,86 @@ export const STEP_OF_STAGE: Readonly<Record<Exclude<Stage, "team">, StepId>> = {
   brief: "about",
   questions: "about",
   agent: "agent",
-  work: "work",
+  work: "agent",
   hear: "hear",
   result: "hear",
 };
 
-/** The rail's index for a stage; going live is past every step, so all four are ticked. */
+/** The rail's index for a stage; going live is past every step, so all are ticked. */
 export function stepIndexOf(stage: Stage): number {
   return stage === "team" ? STEPS.length : STEPS.findIndex((entry) => entry.id === STEP_OF_STAGE[stage]);
 }
 
-/** The two works "What first?" offers, as `POST /v1/first-run/work` names them. */
+/** The two works the first card offers, as `POST /v1/first-run/work` names them. */
 export const FIRST_WORKS = ["answer_calls", "call_leads"] as const;
 export type FirstWorkJob = (typeof FIRST_WORKS)[number];
+
+export function isFirstWorkJob(value: unknown): value is FirstWorkJob {
+  return (FIRST_WORKS as readonly unknown[]).includes(value);
+}
+
+/**
+ * What the owner picked on the first card and the server cannot take yet. The job is posted
+ * only after `PUT /v1/first-run/agent` (`post_work` writes the campaign's main task from the
+ * brief AND the follow-up answers, and refuses `first_run_no_agent` before there is an
+ * agent), and the language is the agent's, sent with its name. Until then both live in this
+ * tab's `sessionStorage` rather than in React state, so a reload on the questions or on Name
+ * and voice keeps them. A browser that refuses storage reads as nothing held, and the
+ * fallback "What first?" screen asks again.
+ */
+export interface CardPick {
+  job: FirstWorkJob | null;
+  /** Set only when the owner changed the language on the card; otherwise the agent's
+   *  step starts from the business profile, which may land after the card. */
+  language: string | null;
+}
+
+const NOTHING_HELD: CardPick = { job: null, language: null };
+
+function pickKey(slug: string): string {
+  return `calevate:first-run-card:${slug}`;
+}
+
+export function readCardPick(slug: string): CardPick {
+  try {
+    const raw = window.sessionStorage.getItem(pickKey(slug));
+    if (!raw) return NOTHING_HELD;
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return NOTHING_HELD;
+    const { job, language } = parsed as Record<string, unknown>;
+    return {
+      job: isFirstWorkJob(job) ? job : null,
+      language: typeof language === "string" && language !== "" ? language : null,
+    };
+  } catch {
+    return NOTHING_HELD;
+  }
+}
+
+export function holdCardPick(slug: string, pick: Partial<CardPick>): CardPick {
+  const next = { ...readCardPick(slug), ...pick };
+  try {
+    window.sessionStorage.setItem(pickKey(slug), JSON.stringify(next));
+  } catch {
+    // Storage refused (private mode, quota): the pick lives for this render only.
+  }
+  return next;
+}
+
+export function forgetCardPick(slug: string): void {
+  try {
+    window.sessionStorage.removeItem(pickKey(slug));
+  } catch {
+    // Nothing to forget where nothing could be kept.
+  }
+}
+
+/** Whether the held job still has to be posted: none drafted yet, or another one picked
+ *  (posting the other drafts that work too, so a script already written is kept). */
+export function jobToPost(held: FirstWorkJob | null, run: FirstRun, work: FirstWork | null): FirstWorkJob | null {
+  if (held === null) return null;
+  return work !== null && run.jobs[0] === held ? null : held;
+}
 
 /** One link of a job's three-link flow: what happens, with the icon that names it. */
 export interface JobLink {
@@ -259,7 +330,9 @@ export function resumeStage({ run, agent, calls, work = null }: FirstAgentState)
   if (run.finished_at) return "team";
   // A saved brief, even an empty one, is the brief step done; files alone are not.
   if (agent === null) return run.brief === null ? "brief" : "questions";
-  if (work === null || !work.ready) return run.line_id || run.campaign_id ? "work" : "agent";
+  if (work === null) return "agent";
+  // A work whose script Pip is still writing waits on Hear it, where it will be heard.
+  if (!work.ready) return "hear";
   return (calls?.length ?? 0) > 0 ? "result" : "hear";
 }
 
@@ -293,9 +366,10 @@ export function firstWorkOf(
   };
 }
 
-/** The work's own page, where the owner changes what it says. */
+/** The work's own page, where the owner changes what it says: a campaign opens on its
+ *  Script tab, an inbound line's page is its script. */
 export function workHref(slug: string, work: FirstWork): string {
-  return work.kind === "line" ? `/c/${slug}/inbound/${work.id}` : `/c/${slug}/campaigns/${work.id}`;
+  return work.kind === "line" ? `/c/${slug}/inbound/${work.id}` : `/c/${slug}/campaigns/${work.id}?tab=script`;
 }
 
 /** The job, in the owner's words, from the agent's direction (for an agent made elsewhere). */
@@ -393,18 +467,22 @@ export function briefWaitingFor({
   documents,
   sending,
   hearing,
+  noJob = false,
 }: {
   documents: readonly FirstRunDocument[];
   /** A file is uploading, or one is being taken off. */
   sending: boolean;
   /** Spoken words are still being turned into text for the box. */
   hearing: boolean;
+  /** Neither job is picked on the card. */
+  noJob?: boolean;
 }): string | null {
   if (hearing) return "Waiting for your words to reach the box.";
   if (sending) return "Waiting for your file to finish sending.";
   const reading = documents.filter((document) => document.state === "reading").length;
   if (reading === 1) return "Waiting for your file to be read. Or remove it.";
   if (reading > 1) return "Waiting for your files to be read. Or remove them.";
+  if (noJob) return "Pick what it does first.";
   return null;
 }
 

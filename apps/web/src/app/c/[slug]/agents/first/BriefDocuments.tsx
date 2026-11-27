@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Check, FileText, LoaderCircle, RotateCcw, TriangleAlert, X } from "lucide-react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
+import { Check, FileText, LoaderCircle, Paperclip, RotateCcw, TriangleAlert, X } from "lucide-react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
 import { FileDrop } from "@/components/fileDrop";
-import { ProblemNotice } from "@/components/ui";
+import { ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
 import { Why } from "@/components/why";
 import type { UploadProgress } from "@/lib/api/client";
 import { useAddDocument, useRemoveDocument, type FirstRun, type FirstRunDocument } from "@/lib/api/firstRun";
@@ -16,39 +16,43 @@ import { documentLine } from "@/lib/firstAgent";
 import { sizeProblem } from "../../knowledge/AddDocument";
 import { ACCEPT_ATTRIBUTE, MAX_UPLOAD_MB, READ_KINDS_LINE } from "../../knowledge/uploadCopy";
 
+/** The drop box's id, for the button that opens it. */
+export const BRIEF_FILE_DROP_ID = "first-run-file-drop";
+
 /**
  * FILES BESIDE THE BRIEF (D-918): a price list, a menu or a brochure the owner already has.
  *
  * Each file is an ordinary knowledge upload (`useAddDocument` sends it to `POST
  * /v1/kb/uploads`, then records it on the first run), so the knowledge screen lists it like
  * any other and every agent uses it. Its words also go to the question and script writers,
- * with customers' numbers and emails removed first. Each row says where the file is: being
- * read, read (and whether the agents use it on calls), or not readable, with "Try another
- * file" in place.
+ * with customers' numbers and emails removed first.
+ *
+ * On the first card it is split in three, so the card keeps one row of tools rather than a
+ * standing drop box: "Add a file" in that row (`AddFileButton`) opens the kit's `FileDrop`
+ * under it, and the files are listed under the box (`BriefDocumentList`). A file dropped
+ * anywhere on the card is sent too (`onDrop`). `useBriefDocuments` is the one sender.
  */
-export function BriefDocuments({
-  run,
-  onBusy,
-}: {
-  run: FirstRun;
-  /** Whether a file is being sent or taken off, for the step's Continue. */
-  onBusy?: (busy: boolean) => void;
-}) {
+export function useBriefDocuments(run: FirstRun, onBusy?: (busy: boolean) => void) {
   const session = useClientSession();
   const add = useAddDocument(session);
   const remove = useRemoveDocument(session);
   const busy = add.isPending || remove.isPending;
   useEffect(() => onBusy?.(busy), [busy, onBusy]);
-  // The progress bar and the row are the success; a refusal is drawn above the control.
+  // The progress bar and the row are the success; a refusal is drawn under the list.
   useActionFeedback(add, { errorDisplay: "inline" });
   useActionFeedback(remove, { errorDisplay: "inline" });
-  const drop = useRef<HTMLDivElement>(null);
+  const zone = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
   const [progress, setProgress] = useState<UploadProgress | null>(null);
   const [sending, setSending] = useState<File | null>(null);
+  const [refused, setRefused] = useState<string | null>(null);
   const full = run.documents_left <= 0;
 
   const send = (file: File) => {
     if (add.isPending || full) return;
+    const problem = sizeProblem(file);
+    setRefused(problem);
+    if (problem) return;
     setSending(file);
     setProgress({ loaded: 0, total: file.size });
     add.mutate(
@@ -62,58 +66,115 @@ export function BriefDocuments({
     );
   };
 
-  const tryAnother = (document: FirstRunDocument) =>
-    remove.mutate(document.upload_id, {
-      onSuccess: () => drop.current?.querySelector<HTMLInputElement>("input[type=file]")?.click(),
-    });
-
   const percent =
     progress && progress.total ? Math.min(100, Math.round((progress.loaded / progress.total) * 100)) : null;
 
-  return (
-    <div className="rounded-card border border-line p-4">
-      <p className="text-heading text-ink">Or add a file</p>
-      <p className="mt-0.5 text-meta text-ink-muted">
-        {READ_KINDS_LINE} Up to {run.documents.length + run.documents_left}.
-      </p>
-      <Why>
-        We read it to write your agent&apos;s script and questions. Customers&apos; numbers and emails are
-        removed first. It also goes into Knowledge, so every agent can use it.
-      </Why>
+  return {
+    run,
+    add,
+    remove,
+    zone,
+    open,
+    toggle: () => setOpen((was) => !was),
+    full,
+    sending,
+    percent,
+    refused,
+    send,
+    // The failed file comes off, and the picker opens in its place.
+    tryAnother: (document: FirstRunDocument) =>
+      remove.mutate(document.upload_id, {
+        onSuccess: () => {
+          setOpen(true);
+          requestAnimationFrame(() => zone.current?.querySelector<HTMLInputElement>("input[type=file]")?.click());
+        },
+      }),
+    onDrop: (event: DragEvent) => {
+      const file = event.dataTransfer.files?.[0];
+      if (!file) return;
+      event.preventDefault();
+      send(file);
+    },
+  };
+}
 
+export type BriefDocumentsState = ReturnType<typeof useBriefDocuments>;
+
+/** "Add a file" in the card's tools. At the bound it says where more go instead. */
+export function AddFileButton({ files }: { files: BriefDocumentsState }) {
+  if (files.full) return <p className="text-meta text-ink-muted">That&apos;s the most for now. Add more under Knowledge.</p>;
+  return (
+    <button
+      type="button"
+      className={SECONDARY_BUTTON}
+      aria-expanded={files.open || files.sending !== null}
+      aria-controls={BRIEF_FILE_DROP_ID}
+      onClick={files.toggle}
+    >
+      <Paperclip aria-hidden className="h-4 w-4" />
+      Add a file
+    </button>
+  );
+}
+
+/** The kit's drop box, opened by "Add a file" and kept open while a file is sent. */
+export function BriefFileDrop({ files }: { files: BriefDocumentsState }) {
+  if (files.full || (!files.open && files.sending === null)) return null;
+  return (
+    <div ref={files.zone} id={BRIEF_FILE_DROP_ID}>
+      <FileDrop
+        compact
+        label="Your file or photo"
+        hint={`One at a time, up to ${MAX_UPLOAD_MB} MB.`}
+        accept={ACCEPT_ATTRIBUTE}
+        validate={sizeProblem}
+        disabled={files.add.isPending}
+        onFiles={([file]) => files.send(file)}
+        sending={files.sending ? { file: files.sending, percent: files.percent } : null}
+      />
+    </div>
+  );
+}
+
+/** The files added, each with where it is, and any refusal. */
+export function BriefDocumentList({ files }: { files: BriefDocumentsState }) {
+  const { run, add, remove, refused } = files;
+  if (run.documents.length === 0 && !refused && !add.error && !remove.error) return null;
+  return (
+    <div className="space-y-2">
       {run.documents.length > 0 ? (
-        <ul className="mt-3 divide-y divide-line rounded-md border border-line">
+        <ul className="divide-y divide-line rounded-md border border-line bg-surface">
           {run.documents.map((document) => (
             <DocumentRow
               key={document.upload_id}
               document={document}
               busy={remove.isPending}
               onRemove={() => remove.mutate(document.upload_id)}
-              onTryAnother={() => tryAnother(document)}
+              onTryAnother={() => files.tryAnother(document)}
             />
           ))}
         </ul>
       ) : null}
-
+      {refused ? (
+        <p role="alert" className="text-meta text-ink">
+          {refused}
+        </p>
+      ) : null}
       {add.error ? <ProblemNotice error={add.error} /> : null}
       {remove.error ? <ProblemNotice error={remove.error} /> : null}
-
-      <div ref={drop} className="mt-3">
-        {full ? (
-          <p className="text-meta text-ink-muted">That&apos;s the most for now. Add more under Knowledge.</p>
-        ) : (
-          <FileDrop
-            label="Your file or photo"
-            hint={`One at a time, up to ${MAX_UPLOAD_MB} MB.`}
-            accept={ACCEPT_ATTRIBUTE}
-            validate={sizeProblem}
-            disabled={add.isPending}
-            onFiles={([file]) => send(file)}
-            sending={sending ? { file: sending, percent } : null}
-          />
-        )}
-      </div>
     </div>
+  );
+}
+
+
+/** What a file may be, behind a tap beside the button. */
+export function FilesWhy({ run }: { run: FirstRun }) {
+  return (
+    <Why inline label="Which files?">
+      {READ_KINDS_LINE} Up to {run.documents.length + run.documents_left}, {MAX_UPLOAD_MB} MB each. We read it to write
+      your agent&apos;s script and questions. Customers&apos; numbers and emails are removed first. It also goes into
+      Knowledge, so every agent can use it.
+    </Why>
   );
 }
 
