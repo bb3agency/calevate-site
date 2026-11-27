@@ -314,9 +314,9 @@ describe("the price of a minute on each voice (PLAN 2026-11-28 §7)", () => {
       [`GET ${AGENT_PATH}`]: agentRow({ id: AGENT }),
       "/v1/billing/wallet/lots": { lots: [LOT, LATER_LOT], tiers: [], overdraft_inr: "0.0000" },
     });
-    await waitFor(async () => expect(await groupText("Clear voices")).toContain("₹4.3 a minute"));
-    expect(await groupText("Studio voices")).toContain("₹6.5 a minute");
-    expect(within(screen.getByRole("group", { name: "Clear voices" })).getAllByText("₹4.3 a minute").length).toBeGreaterThan(1);
+    await waitFor(async () => expect(await groupText("Clear voices")).toContain("₹4.25 a minute"));
+    expect(await groupText("Studio voices")).toContain("₹6.50 a minute");
+    expect(within(screen.getByRole("group", { name: "Clear voices" })).getAllByText("₹4.25 a minute").length).toBeGreaterThan(1);
   });
 
   it("with no credit, quotes the cheapest pack and says a trial is free", async () => {
@@ -327,9 +327,9 @@ describe("the price of a minute on each voice (PLAN 2026-11-28 §7)", () => {
       "/v1/trial": { ...NOT_ON_TRIAL, on_trial: true },
     });
     await waitFor(async () =>
-      expect(await groupText("Clear voices")).toContain("From ₹4 a minute. Free during your trial."),
+      expect(await groupText("Clear voices")).toContain("From ₹4.00 a minute. Free during your trial."),
     );
-    expect(await groupText("Studio voices")).toContain("from ₹5.5 a minute");
+    expect(await groupText("Studio voices")).toContain("from ₹5.50 a minute");
   });
 
   it("says when a price will show, and never a number, when nothing can be read", async () => {
@@ -348,8 +348,8 @@ describe("the price of a minute on each voice (PLAN 2026-11-28 §7)", () => {
       "/v1/billing/wallet/lots": { lots: [LOT], tiers: [], overdraft_inr: "0.0000" },
       "/v1/organization/llm-defaults": { upgrade_surcharge_inr_per_minute: "1.5000", options: [] },
     });
-    await waitFor(async () => expect(await groupText("Clear voices")).toContain("+ ₹1.5 a minute for the AI model"));
-    expect(await groupText("Clear voices")).toContain("₹4.3 a minute");
+    await waitFor(async () => expect(await groupText("Clear voices")).toContain("+ ₹1.50 a minute for the AI model"));
+    expect(await groupText("Clear voices")).toContain("₹4.25 a minute");
   });
 
   it("names no provider", async () => {

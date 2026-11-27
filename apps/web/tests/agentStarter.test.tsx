@@ -163,8 +163,8 @@ describe("new agent: step 2, the voice", () => {
     await createAgent();
     expect(document.querySelector('[aria-current="step"]')?.textContent).toContain("Voice");
     const clear = await screen.findByRole("group", { name: "Clear voices" });
-    await waitFor(() => expect(clear.textContent).toContain("₹4.5 a minute"));
-    expect(screen.getByRole("group", { name: "Studio voices" }).textContent).toContain("₹6 a minute");
+    await waitFor(() => expect(clear.textContent).toContain("₹4.50 a minute"));
+    expect(screen.getByRole("group", { name: "Studio voices" }).textContent).toContain("₹6.00 a minute");
   });
 
   it("saves the picked voice with the agent's own write and finishes", async () => {

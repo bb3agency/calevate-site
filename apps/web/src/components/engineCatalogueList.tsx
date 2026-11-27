@@ -9,7 +9,8 @@ import { CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import { InfoTip } from "@/components/console/infoTip";
 import { ModelLogo } from "@/components/console/modelLogo";
 import { SaveBar } from "@/components/console/saveBar";
-import { ProblemNotice, Skeleton, formatINR } from "@/components/ui";
+import { ProblemNotice, Skeleton } from "@/components/ui";
+import { formatINRExact } from "@/lib/numberDisplay";
 import { VoicePreviewButton } from "@/components/voicePreviewButton";
 import { viewAsSession } from "@/lib/api/admin";
 import { useAgent, useUpdateAgent, type Agent } from "@/lib/api/agents";
@@ -662,7 +663,7 @@ function RungPrice({ price, surcharge }: { price: VoiceMinutePrice; surcharge: s
         {price.kind === "from" && price.trial ? `. ${FREE_ON_TRIAL}.` : ""}
       </p>
       {surcharge !== null && price.kind !== "unknown" && (
-        <p className="text-ink-muted">+ {formatINR(surcharge)} a minute for the AI model</p>
+        <p className="text-ink-muted">+ {formatINRExact(surcharge)} a minute for the AI model</p>
       )}
     </div>
   );

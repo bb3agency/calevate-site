@@ -231,7 +231,7 @@ export function VoiceLine({
   const voiceId = agent?.engine_voice_id ?? null;
   if (agent === null) return <p className="text-meta text-ink-faint">Chosen with its name.</p>;
   const change = (
-    <Link href={href(`/c/${session.orgSlug}/agents/${agent.id}?section=settings`)} className={TEXT_ACTION}>
+    <Link href={href(`/c/${session.orgSlug}/agents/${agent.id}?section=voice`)} className={TEXT_ACTION}>
       {voiceId ? "Change" : "Choose one"}
     </Link>
   );

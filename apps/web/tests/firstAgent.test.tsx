@@ -1113,7 +1113,7 @@ describe("meet your agent", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /This number is my own/ }));
     fireEvent.click(call);
     expect(await screen.findByText(/Switch this agent to a Clear voice/)).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Choose a Clear voice" }).getAttribute("href")).toContain("section=settings");
+    expect(screen.getByRole("link", { name: "Choose a Clear voice" }).getAttribute("href")).toContain("section=voice");
     expect(screen.getByRole("link", { name: "Add credit" }).getAttribute("href")).toContain("tab=credits");
     expect(screen.queryByRole("button", { name: /Try again/ })).toBeNull();
   });

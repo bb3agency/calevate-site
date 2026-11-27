@@ -15,14 +15,15 @@
  *  3. neither readable (staff cannot read the pack card, `billing:read`): no figure at all,
  *     and the picker says when one will show. Never a guessed number.
  *
- * Figures are printed with `formatINR`, the display rule every client billing screen prints
- * lot and pack rates with; nothing is added or multiplied into a new price (hard rule 7).
+ * Figures are printed to the paisa with `formatINRExact`: a per-minute price the owner pays is
+ * shown exactly (the general display rule would print 4.25 as 4.3). Nothing is added or
+ * multiplied into a new price here (hard rule 7).
  */
 
 import type { UseQueryResult } from "@tanstack/react-query";
 
 import { lotRate, useWalletLots, type VoiceTier, type WalletLots } from "@/app/c/[slug]/billing/lots";
-import { formatINR } from "@/components/ui";
+import { formatINRExact } from "@/lib/numberDisplay";
 import { useCreditPacks, type CreditPacks } from "@/lib/api/billing";
 import type { Session } from "@/lib/api/client";
 import { cardFromRate } from "@/lib/api/rateCard";
@@ -63,15 +64,15 @@ export function useVoiceMinutePrices(session: Session): (tier: VoiceTier) => Voi
   return (tier) => voiceMinutePrice(tier, lots, packs, trial);
 }
 
-/** The figure in words: "₹4.5 a minute", "from ₹4.5 a minute", the later line, or nothing yet. */
+/** The figure in words, to the paisa ("₹4.50 a minute", "from ₹4.25 a minute"): a price the owner pays is never rounded. */
 export function priceWords(price: VoiceMinutePrice): string | null {
   switch (price.kind) {
     case "loading":
       return null;
     case "lot":
-      return `${formatINR(price.rate)} a minute`;
+      return `${formatINRExact(price.rate)} a minute`;
     case "from":
-      return `from ${formatINR(price.rate)} a minute`;
+      return `from ${formatINRExact(price.rate)} a minute`;
     case "unknown":
       return PRICE_LATER;
   }
