@@ -35,7 +35,9 @@ admin renames it, so the voice is chosen among female voices first (the default 
 else a Clear one (`no_female_studio_voice` when Studio could have been used but has no woman's
 voice for the language). Only when none can be chosen on either rung is the best voice kept,
 flagged `not_female` so the card says so. A voice whose provider states no gender is not
-counted as either: the name must match what the caller hears.
+counted as either: the name must match what the caller hears. Nor is it flagged when it is
+the one kept: the card's "No woman's voice speaks this language yet" would then be said of a
+voice that may well be a woman's, beside a list naming it as one that speaks the language.
 """
 
 from __future__ import annotations
@@ -245,12 +247,23 @@ def choose_voice(
         )
         return PickedVoice(row=clear_match[0], rung="clear", fallback=reason)
     if usable_studio:
-        return PickedVoice(row=usable_studio[0], rung="studio", not_female=womans)
+        best = usable_studio[0]
+        return PickedVoice(row=best, rung="studio", not_female=womans and _stated(best))
     if not clear:
         return None
+    best = clear[0]
     return PickedVoice(
-        row=clear[0], rung="clear", fallback=hindrance or "no_studio_voice", not_female=womans
+        row=best,
+        rung="clear",
+        fallback=hindrance or "no_studio_voice",
+        not_female=womans and _stated(best),
     )
+
+
+def _stated(row: HostedVoiceRow) -> bool:
+    """Whether the provider says what gender `row` is (here, kept for want of a woman's, so not
+    one): only then may the card say it is not a woman's voice."""
+    return gender_of(row.gender) is not None
 
 
 __all__ = [

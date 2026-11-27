@@ -181,6 +181,7 @@ export const SETUP = {
 
 export const FIRST = {
   workHint: "Pick one. You can add the other later.",
+  workSuggested: "Ticked from what you wrote. Change it if you like.",
   agentHint: "A name and a voice. What it says comes next.",
   nameHint: "Callers hear this name.",
   workWriting: "Pip is writing what it says…",

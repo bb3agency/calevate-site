@@ -199,7 +199,9 @@ export function LaunchGate({
             </div>
           ) : (
             <div className="space-y-4">
-              {items.length > 0 && <Checklist label="Checks to answer" items={items} emphasizeNext />}
+              {/* The card's header carries the one count (`todo`, which includes the
+                  where-the-list-came-from question below the list), so the list adds none. */}
+              {items.length > 0 && <Checklist label="Checks to answer" items={items} emphasizeNext counted={false} />}
               {items.length === 0 && !provenanceRule && !noPeople && !agentNotLive && (
                 // Not ready with nothing itemised: say the true thing, that their side is done.
                 <p className="text-body text-ink-muted">Everything on your side is ready.</p>

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useId, useState } from "react";
 import type { UseMutationResult } from "@tanstack/react-query";
 import { Pencil } from "lucide-react";
@@ -16,6 +17,8 @@ import { useClientSession } from "@/lib/api/session";
 import { RoomCounter, roomLabel, spokenLength } from "../panels/openingLineFix";
 import { OUTBOUND_PURPOSE_MAX } from "../[agentId]/script/ScriptSections";
 
+export const NO_OPENING = "No opening line yet.";
+
 /**
  * What the first work says first (Phase 3b): the opening of the line's or the campaign's own
  * script, quoted. Read only here: the words belong to the work, and are changed on its page.
@@ -24,10 +27,13 @@ export function WorkOpening({
   work,
   lang,
   label = "It says first",
+  writeHref,
 }: {
-  work: { opening: string | null } | null;
+  work: { opening: string | null; ready: boolean } | null;
   lang: string;
   label?: string;
+  /** Where a missing opening is written: the work's own page. */
+  writeHref?: string;
 }) {
   return (
     <figure className="min-w-0">
@@ -36,6 +42,16 @@ export function WorkOpening({
         <blockquote lang={lang} className="mt-1 break-words text-body text-ink">
           “{work.opening}”
         </blockquote>
+      ) : work?.ready ? (
+        // The script is saved without one: said as it is, the words the work's page uses.
+        <p className="mt-1 flex flex-wrap items-center gap-x-3 text-meta text-ink-muted">
+          {NO_OPENING}
+          {writeHref ? (
+            <Link href={writeHref} className={TEXT_ACTION}>
+              Write one
+            </Link>
+          ) : null}
+        </p>
       ) : (
         <p className="mt-1 text-meta text-ink-faint">Written when Pip writes its script.</p>
       )}
@@ -237,7 +253,7 @@ export function OpeningLine({
         save={replace}
         status={feedback.status}
         editable={editable}
-        empty="No opening line yet."
+        empty={NO_OPENING}
         why="Callers hear this first. Your AI and recording notices are separate and stay as set."
       />
       {both ? (

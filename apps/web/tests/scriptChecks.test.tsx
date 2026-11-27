@@ -205,7 +205,7 @@ describe("the refusal, with Pip's fix and Show me", () => {
     const body = JSON.parse(r.calls.find((c) => c.method === "POST")?.body ?? "{}") as { instruction?: string };
     expect(body.instruction).toContain("Step 1: asks them to say when it is done");
     fireEvent.click(screen.getByRole("button", { name: "Show me" }));
-    expect(shown).toHaveBeenCalledWith({ stageId: "intro" });
+    expect(shown).toHaveBeenCalledWith({ stageId: "intro", path: "stages.0.scripts.te-IN" });
     await expectNoA11yViolations(r.container, "script needs fixing");
   });
 });

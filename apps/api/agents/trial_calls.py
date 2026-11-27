@@ -83,7 +83,8 @@ TRIAL_CALL_ROUTE: Final = "/v1/trial/calls"
 TRIAL_CALL_ENGINES: Final = frozenset({"thinnest"})
 
 NOT_READY_RULE: Final = "trial_calling_not_ready"
-NOT_READY_REASON: Final = "Test calls are not available yet. Please try again later."
+#: Why, in the owner's words, with no date: nothing on their side fixes it.
+NOT_READY_REASON: Final = "Our test line isn't set up yet, so test calls can't ring."
 
 
 _Held = TypeVar("_Held")

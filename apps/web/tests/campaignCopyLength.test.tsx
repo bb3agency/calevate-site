@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -180,6 +180,9 @@ describe("the campaign screens' default view", () => {
     await screen.findByText("Mandatory Regulatory Compliance Checks");
     await screen.findByText(/checks to answer$/);
     expect(tooLong(visibleLines(container))).toEqual([]);
+    // One count on the card, its header's (C12-b: "7 checks to answer" over "0 of 6 done").
+    const card = screen.getByText("Mandatory Regulatory Compliance Checks").closest("section") as HTMLElement;
+    expect(within(card).queryByText(/ of \d+ done$/)).toBeNull();
   });
 
   it("starts a new campaign in short lines", async () => {

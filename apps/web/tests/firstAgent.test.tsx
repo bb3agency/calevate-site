@@ -1,5 +1,5 @@
 
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import FirstAgentPage from "@/app/c/[slug]/agents/first/page";
@@ -16,6 +16,7 @@ import {
   defaultLanguage,
   firstAgentOf,
   firstWorkOf,
+  jobFromBrief,
   jobsTitle,
   languageGlyph,
   piecesOf,
@@ -32,6 +33,15 @@ import { answersBody, emptyAnswer } from "@/lib/firstRunQuestions";
 import { businessProfileFixture } from "./businessProfileFixture";
 import { OWNER_ME, agentRow } from "./fixtures/sharedReads";
 import { NO_BUSINESS_COPY, problem, renderClientPage } from "./harness";
+
+/** The brief typed in the 28 Nov trial run (docs/evidence/outpero-vs-calevate-2026-11-28). */
+const BRIEF_TEXT =
+  "We are Rytu Khata, an app that helps farmers keep their farm expenses, crop sales and profit on their phone. " +
+  "Call farmers who registered on our website rytukhata.com but have not started using the app. Help them install " +
+  "it on their phone's home screen from rytukhata.com (Android: Chrome, iPhone: Safari, Add to Home Screen), log in " +
+  "with their mobile number, set the app language to Telugu, add their farm in My Farms, then enter their first " +
+  "expense and their first sale. Go one step at a time and wait for them. If they are busy, ask when to call back. " +
+  "If they don't remember registering, explain what Rytu Khata is and offer to help.";
 
 /** The placeholders every generated copy carries; a test sets the one it is about. */
 const PLACEHOLDERS_FOR_BRIEF = {
@@ -373,6 +383,17 @@ describe("the pieces and where an owner resumes", () => {
     expect(isLimitRule("trial_line_busy")).toBe(false);
   });
 
+  it("reads the first work from a brief only when it plainly asks for one", () => {
+    expect(jobFromBrief(BRIEF_TEXT)).toBe("call_leads");
+    expect(jobFromBrief("We call our registered users to remind them of renewals.")).toBe("call_leads");
+    expect(jobFromBrief("Answer our calls after hours and note what people need.")).toBe("answer_calls");
+    expect(jobFromBrief("When customers call us, take their order.")).toBe("answer_calls");
+    // A call back is not a list of people to call; neither, or both, suggests nothing.
+    expect(jobFromBrief("We sell flats in Kondapur. If they are busy, call back later.")).toBeNull();
+    expect(jobFromBrief("Answer incoming calls and call new leads every morning.")).toBeNull();
+    expect(jobFromBrief(null)).toBeNull();
+  });
+
   it("says why the default voice is not a woman's Studio voice, naming no provider", () => {
     expect(studioFallbackLine("studio_unavailable")).toBe("Studio voices aren't available right now, so it uses a Clear voice.");
     expect(studioFallbackLine(null)).toBeNull();
@@ -444,6 +465,29 @@ describe("meet your agent", () => {
     expect(await screen.findByRole("heading", { name: "Its voice" })).toBeTruthy();
   });
 
+  it("ticks the work the brief plainly asks for, and drafts it only on Continue (C9)", async () => {
+    const named = built({ line_id: null, jobs: [], brief: BRIEF_TEXT });
+    const drafted = built({ line_id: null, campaign_id: LINE_ID, jobs: ["call_leads"], brief: BRIEF_TEXT });
+    const table = routes({
+      "/v1/first-run": named,
+      "/v1/agents": [agent()],
+      [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [],
+      "POST /v1/first-run/work": drafted,
+      [`/v1/campaigns/${LINE_ID}/workspace`]: { script: null, proposal: { id: "p1", status: "drafting" } },
+    });
+    const { calls } = await renderClientPage(page, table);
+    fireEvent.click(await screen.findByRole("button", { name: /Continue/ }));
+    expect(await screen.findByRole("heading", { name: "What should Anjali do first?" })).toBeTruthy();
+    expect((screen.getByRole("radio", { name: /Call people/ }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("radio", { name: /Answer my calls/ }) as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByText("Ticked from what you wrote. Change it if you like.")).toBeTruthy();
+    // Ticked is not drafted: nothing is written until the owner presses.
+    expect(calls.some((call) => call.path === "/v1/first-run/work")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    await waitFor(() => expect(calls.some((call) => call.method === "POST" && call.path === "/v1/first-run/work")).toBe(true));
+    expect(JSON.parse(calls.find((call) => call.path === "/v1/first-run/work")?.body ?? "{}")).toEqual({ job: "call_leads" });
+  });
+
   it("drafts a line on Answer my calls, says Pip is writing it, and offers Hear it once written", async () => {
     const named = built({ line_id: null, jobs: [] });
     const drafted = built();
@@ -490,6 +534,90 @@ describe("meet your agent", () => {
     const box = (await screen.findByRole("textbox", { name: "About your business" })) as HTMLTextAreaElement;
     await waitFor(() => expect(box.value).toBe(own));
     expect(screen.getByText("Written from your business details. Change anything.")).toBeTruthy();
+  });
+
+  it("keeps every key typed fast, and never puts the account's late brief into a box being typed in (C3-a)", async () => {
+    let release = () => undefined as void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const own = "Help farmers view their farm data";
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        // The account's own brief is written by a job after sign-up and lands mid-step.
+        "/v1/business-copy": () =>
+          new Response(
+            new ReadableStream({
+              async start(controller) {
+                await gate;
+                const body = { ...NO_BUSINESS_COPY, placeholders: { ...PLACEHOLDERS_FOR_BRIEF, script_brief: own } };
+                controller.enqueue(new TextEncoder().encode(JSON.stringify(body)));
+                controller.close();
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      }),
+    );
+    const box = (await screen.findByRole("textbox", { name: "About your business" })) as HTMLTextAreaElement;
+    expect(box.value).toBe("");
+    // The owner puts the cursor in the empty box; the account's brief lands before the first key.
+    act(() => box.focus());
+    await act(async () => {
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(calls.some((call) => call.path === "/v1/business-copy")).toBe(true);
+    expect(box.value).toBe("");
+    // 803 characters, one key at a time with no delay, each built on what the box holds then,
+    // as a browser does.
+    const typed = `${BRIEF_TEXT} Free for farmers. Hyderabad, Telangana. Call only between 9am and 6pm.`.padEnd(803, " ok").slice(0, 803);
+    for (const key of Array.from(typed)) fireEvent.input(box, { target: { value: box.value + key } });
+    expect(box.value).toBe(typed);
+    expect(box.value.length).toBe(803);
+    expect(screen.getByText(`803 of 4000`)).toBeTruthy();
+    expect(screen.queryByText("Written from your business details. Change anything.")).toBeNull();
+  });
+
+  it.each([
+    ["Ravi", false],
+    ["Akshita", true],
+  ])("says the voice note only of the voice the build chose (%s), never of one picked since (C8-a)", async (built, said) => {
+    const voice = (voice_id: string, label: string) => ({
+      voice_id,
+      label,
+      rung: "studio",
+      is_custom: false,
+      language_note: "Speaks Telugu",
+      offerable: true,
+      preview_available: false,
+      reason: null,
+      standing: "offered",
+    });
+    const atVoice = (label: string) =>
+      run({
+        brief: "We sell flats.",
+        agent_id: AGENT_ID,
+        language_primary: "te-IN",
+        questions: { status: "ready", items: [], disclosure: null },
+        build: {
+          ...run().build,
+          steps: STEPS.map((step) =>
+            step === "voice"
+              ? { step, state: "done", label, rung: "studio", not_female: true, documents_used: 0 }
+              : { step, state: "waiting", label: null, not_female: false, documents_used: 0 },
+          ),
+        },
+      });
+    const catalogue = { available: true, voices: [voice("engine:v1", "Akshita"), voice("engine:v2", "Ravi")], models: [] };
+    await renderClientPage(
+      page,
+      routes({ "/v1/first-run": atVoice(built), "/v1/agents": [agent()], "/v1/agents/engine-catalogue": catalogue }),
+    );
+    const card = await screen.findByRole("complementary", { name: "Your agent as it takes shape" });
+    expect(await within(card).findByText("Akshita")).toBeTruthy();
+    expect(within(card).queryByText(NOT_FEMALE_LINE) !== null).toBe(said);
   });
 
   it("keeps what was typed in the brief through Pip and back (journey audit E1)", async () => {
@@ -714,6 +842,26 @@ describe("meet your agent", () => {
     const step = screen.getByRole("region", { name: "This step" });
     expect(within(step).getByText(`“${OPENING}”`)).toBeTruthy();
     expect(within(step).queryByRole("button", { name: "Edit" })).toBeNull();
+  });
+
+  it("says plainly that a written script has no opening line, with the way to write one (C11-d)", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": built(),
+        "/v1/agents": [agent()],
+        [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [],
+        [`/v1/inbound-lines/${LINE_ID}`]: lineRow({ script: { opening_line: "" } }),
+        "/v1/trial": TRIAL,
+        "/v1/legal/readiness": READINESS,
+        "/v1/compliance/outbound-pledge": PLEDGE,
+      }),
+    );
+    expect(await screen.findByRole("heading", { name: "Hear Anjali on your phone" })).toBeTruthy();
+    expect(screen.queryByText("Written when Pip writes its script.")).toBeNull();
+    const step = screen.getByRole("region", { name: "This step" });
+    expect(within(step).getByText("No opening line yet.")).toBeTruthy();
+    expect(within(step).getByRole("link", { name: "Write one" }).getAttribute("href")).toContain(`/inbound/${LINE_ID}`);
   });
 
   it("holds the call until every outstanding tick is ticked, then accepts each and rings", async () => {

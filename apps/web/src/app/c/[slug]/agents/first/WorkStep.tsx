@@ -9,7 +9,7 @@ import { ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import { useStartFirstWork, type FirstRun } from "@/lib/api/firstRun";
 import { useClientRealm } from "@/lib/api/session";
-import { FIRST_WORKS, jobCard, workHref, type FirstWork, type FirstWorkJob, type JobCard } from "@/lib/firstAgent";
+import { FIRST_WORKS, jobCard, jobFromBrief, workHref, type FirstWork, type FirstWorkJob, type JobCard } from "@/lib/firstAgent";
 
 import { StepScreen } from "./shell";
 import { FIRST } from "../../_ui/copy";
@@ -45,6 +45,10 @@ export function WorkStep({
   const start = useStartFirstWork(session);
   const startFeedback = useActionFeedback(start, { errorDisplay: "inline" });
   const chosen = (run.jobs[0] as FirstWorkJob | undefined) ?? null;
+  // Before any work is drafted, the one the brief already asks for is ticked, and Continue
+  // drafts it; the other card still drafts its own work in one tap. Nothing is drafted until
+  // the owner presses, because drafting spends a Pip writing.
+  const suggested = work === null && chosen === null ? jobFromBrief(run.brief) : null;
   // Pip was not available (no AI allowance left, or its draft failed), so the server gave the
   // work the ready-made script for its job (`first_run/work.save_ready_made`).
   const readyMade = run.build.steps.some((step) => step.step === "script" && step.state === "ready_made");
@@ -63,10 +67,15 @@ export function WorkStep({
             <PhoneCall aria-hidden className="h-4 w-4" />
             Hear it
           </>
+        ) : suggested ? (
+          <>
+            Continue
+            <ArrowRight aria-hidden className="h-4 w-4" />
+          </>
         ) : undefined
       }
       status={startFeedback.status}
-      onSubmit={onDone}
+      onSubmit={work?.ready ? onDone : suggested ? () => pick(suggested) : undefined}
     >
       <fieldset className="space-y-2.5">
         <legend className="sr-only">Its first work</legend>
@@ -76,13 +85,14 @@ export function WorkStep({
             <WorkChoice
               key={job}
               card={card}
-              checked={chosen === job && work !== null}
+              checked={(chosen === job && work !== null) || suggested === job}
               disabled={start.isPending}
               onChange={() => pick(job)}
             />
           ) : null;
         })}
       </fieldset>
+      {suggested ? <p className="text-meta text-ink-muted">{FIRST.workSuggested}</p> : null}
 
       {work && !work.ready ? (
         readError ? (

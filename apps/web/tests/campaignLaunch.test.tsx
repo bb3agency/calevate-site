@@ -549,7 +549,7 @@ describe("launching", () => {
     });
     await screen.findByRole("button", { name: "Call 120 people" });
     await vi.waitFor(() =>
-      expect(otherSettings().textContent).toContain("You set 5. Your account runs up to 2 calls at once."),
+      expect(otherSettings().textContent).toContain("Set to 5. Your account runs up to 2 calls at once."),
     );
     expect(screen.queryByText(/plan allows/)).toBeNull();
   });
@@ -562,7 +562,7 @@ describe("launching", () => {
       "/v1/call-lines": { call_lines: 10, in_progress: 0, on_trial: false },
       [LAUNCH_ROUTE]: LAUNCHED,
     });
-    expect((await screen.findAllByText("You set 5. Up to 2 can run at once right now.")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Set to 5. Up to 2 can run at once right now.")).length).toBeGreaterThan(0);
     expect(container.textContent).not.toContain("plan allows");
     expect(container.textContent).not.toContain("Your account runs");
   });

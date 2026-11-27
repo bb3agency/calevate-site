@@ -121,7 +121,7 @@ function FixButtons({
           type="button"
           className={SECONDARY_BUTTON_SM}
           disabled={!first}
-          onClick={() => showFinding(first?.stage_id ?? null)}
+          onClick={() => showFinding(first)}
         >
           Show me
         </button>

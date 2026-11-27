@@ -80,14 +80,32 @@ export function BriefStep({
   const boxId = useId();
   const box = useRef<HTMLTextAreaElement>(null);
   const [brief, setBrief] = useState<string | null>(draft ?? run.brief);
-  const unsaved = brief !== null && brief.trim() !== (run.brief ?? "").trim();
-  useEffect(() => onDraft(unsaved ? brief : null), [brief, unsaved, onDraft]);
+  // What the box showed when the owner first put the cursor in it (`adopt`): until they
+  // change it, it is the account's own brief, not unsaved typing.
+  const [seed, setSeed] = useState<string | null>(null);
+  const unsaved = brief !== null && brief !== seed && brief.trim() !== (run.brief ?? "").trim();
+  // The screen is told what was typed only when this step goes away, not on every key: a
+  // keystroke that re-rendered the whole screen (the card, the meter, the rail) made fast
+  // typing on a slow phone the most expensive thing on the page.
+  const leaving = useRef<string | null>(null);
+  leaving.current = unsaved ? brief : null;
+  useEffect(() => () => onDraft(leaving.current), [onDraft]);
   // A reload or a closed tab would lose it too.
   useUnsavedGuard(unsaved);
   const [sending, setSending] = useState(false);
   const [hearing, setHearing] = useState(false);
   const waitingFor = briefWaitingFor({ documents: run.documents, sending, hearing });
+  // The account's own brief fills the box only while the owner has not touched it. It is
+  // written by a job after sign-up and can land seconds into the step; once the box has
+  // focus, what it shows is fixed as the owner's (`adopt`), so a late brief never lands
+  // in front of what they are typing.
   const text = brief ?? ownBrief ?? "";
+  const adopt = () => {
+    if (brief !== null) return;
+    setBrief(text);
+    setSeed(text);
+  };
+  const fromDetails = ownBrief !== null && text === ownBrief && (brief === null || brief === seed);
   // `offered` is never empty (the three every account has while the server's list loads).
   const language = run.language_primary ?? businessLanguage(copy?.language, offered) ?? "";
 
@@ -128,13 +146,14 @@ export function BriefStep({
           ref={box}
           value={text}
           maxLength={BRIEF_MAX_CHARS}
-          placeholder={ownBrief ? undefined : examples.scriptBrief}
+          placeholder={examples.scriptBrief}
+          onFocus={adopt}
           onChange={(event) => setBrief(event.target.value)}
           rows={7}
           className={`${FIELD} mt-2 w-full resize-y text-[16px] leading-relaxed`}
         />
         <p className="mt-1 flex justify-between gap-3 text-meta text-ink-faint">
-          <span>{brief === null && ownBrief ? "Written from your business details. Change anything." : ""}</span>
+          <span>{fromDetails ? "Written from your business details. Change anything." : ""}</span>
           <span className="tabular-nums">
             {Array.from(text).length} of {BRIEF_MAX_CHARS}
           </span>

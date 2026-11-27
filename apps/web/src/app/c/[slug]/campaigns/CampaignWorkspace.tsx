@@ -17,7 +17,7 @@
  */
 
 import dynamic from "next/dynamic";
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ExpandableText } from "@/components/arc/expandable-text";
@@ -48,7 +48,15 @@ import { useClientRealm } from "@/lib/api/session";
 import { LeftOutNotice, lineWarningsOf } from "../agents/[agentId]/script/PipProposal";
 import type { PartKey } from "../agents/[agentId]/script/scriptDiff";
 import { ScriptNeedsFix } from "@/components/scriptChecks/ScriptNeedsFix";
-import { isPromptTooLong, isScriptNeedsFix, useScriptChecks } from "@/lib/api/scriptChecks";
+import {
+  SHOW_FINDING_EVENT,
+  findingWarnings,
+  isOpeningFinding,
+  isPromptTooLong,
+  isScriptNeedsFix,
+  showRequestOf,
+  useScriptChecks,
+} from "@/lib/api/scriptChecks";
 
 import { AddSourceForm, SOURCES_HINT, SOURCES_INFO } from "./AddSource";
 import { PipGenerateBand } from "./PipGenerateBand";
@@ -342,7 +350,28 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   const [reviewing, setReviewing] = useState<string | null>(null);
   const proposal = space.proposal;
   const script = space.script;
-  const size = scriptSizeOf(useScriptChecks(session, { kind: "campaign", id: campaignId }, script).data);
+  const checks = useScriptChecks(session, { kind: "campaign", id: campaignId }, script);
+  const size = scriptSizeOf(checks.data);
+  const warnings = useMemo(
+    () => (checks.isSuccess ? findingWarnings(checks.data.findings) : []),
+    [checks.isSuccess, checks.data],
+  );
+  // "Show me" from the compliance checks or a refusal: the section opens wherever the line
+  // is. A step or the opening is the flow's to show (`CampaignFlow`); any other part opens
+  // Edit script on it.
+  const [reveal, setReveal] = useState(0);
+  const [showing, setShowing] = useState<{ stageId: string | null } | null>(null);
+  useEffect(() => {
+    const show = (event: Event) => {
+      const request = showRequestOf(event);
+      setReveal((n) => n + 1);
+      if (!script || request.stageId || isOpeningFinding(request)) return;
+      setEditing(true);
+      setShowing({ stageId: null });
+    };
+    window.addEventListener(SHOW_FINDING_EVENT, show);
+    return () => window.removeEventListener(SHOW_FINDING_EVENT, show);
+  }, [script]);
   const hasTask = space.main_task.trim() !== "";
   // Pip rewrites one part in a chosen language; the draft then comes back for review here.
   const settings = useCampaignSettings(session, campaignId, space.agent_id).data;
@@ -384,6 +413,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
     });
   const closeEditor = () => {
     setEditing(false);
+    setShowing(null);
     backToScript();
   };
 
@@ -427,7 +457,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
     proposal != null && (proposal.status === "drafting" || readyReview !== null) && reviewing !== proposal.id;
 
   return (
-    <FoldSection id="campaign-script" title="Script" tone="script" hint={SCRIPT_HINT} info={SCRIPT_INFO}>
+    <FoldSection id="campaign-script" title="Script" tone="script" hint={SCRIPT_HINT} info={SCRIPT_INFO} reveal={reveal}>
       {/* Generate sits in the Script section (founder, 15 Nov 2026): one place to get a script and read it. */}
       <div className="mb-4">
         <GenerateScript
@@ -527,6 +557,8 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
             saving={save.isPending}
             onSave={(next) => void keep(next)}
             onClose={closeEditor}
+            warnings={warnings}
+            show={showing}
           />
         </div>
       )}
