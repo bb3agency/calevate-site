@@ -32,7 +32,22 @@ from calevate_shared.engine import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.own_model_prompt import GEMINI_CHARS_PER_TOKEN
 from apps.api.engine.hosted_platform import hosted_agent_limits
+
+#: The length the owner's script (the `client_script` layer) aims to stay under: a target the
+#: script screen shows, never a refusal; the box (`PromptSize.limit`) is the only refusal.
+#: ElevenLabs: "No universal limit exists, but prompts over 2000 tokens increase latency and
+#: cost" (elevenlabs.io/docs/eleven-agents/best-practices/prompting-guide, read 27 Nov 2026);
+#: Retell: "Longer prompts cost first-token time and often reduce instruction-following"
+#: (docs.retellai.com/integrate-llm/llm-best-practice, read 27 Nov 2026); accuracy falls as
+#: instructions pile up (IFScale, arxiv.org/abs/2507.11538). 2,000 tokens at Google's ratio
+#: for Gemini (`GEMINI_CHARS_PER_TOKEN`). ESTIMATE, applied to the script rather than the
+#: whole prompt because the platform's own layers are about 7,000 characters before any
+#: script and are not the owner's to shorten; Telugu and Hindi letters count more tokens per
+#: character than English, so for them the target is generous rather than strict.
+SCRIPT_TARGET_TOKENS: Final = 2_000
+SCRIPT_TARGET_CHARS: Final = SCRIPT_TARGET_TOKENS * GEMINI_CHARS_PER_TOKEN
 
 #: Owner-facing names for the layers, in prompt order.
 LAYER_LABELS: Final[dict[PromptLayer, str]] = {
@@ -128,6 +143,20 @@ class PromptSize:
     @property
     def fits(self) -> bool:
         return self.over == 0
+
+    @property
+    def script_chars(self) -> int:
+        """The owner's script as the engine receives it, fenced (the `client_script` layer)."""
+        return sum(p.chars for p in self.layers if p.key == "client_script")
+
+    @property
+    def script_limit(self) -> int | None:
+        """The longest the script can be with the platform's layers as they are now."""
+        return self.limit - (self.total - self.script_chars) if self.limit is not None else None
+
+    @property
+    def over_target(self) -> bool:
+        return self.script_chars > SCRIPT_TARGET_CHARS
 
     def longest_script_parts(self, count: int = 3) -> tuple[SizePart, ...]:
         """The owner's longest sections, the ones worth shortening first."""
@@ -293,6 +322,8 @@ def lines(size: PromptSize) -> Sequence[str]:
 
 __all__ = [
     "LAYER_LABELS",
+    "SCRIPT_TARGET_CHARS",
+    "SCRIPT_TARGET_TOKENS",
     "PromptSize",
     "SizePart",
     "as_dict",

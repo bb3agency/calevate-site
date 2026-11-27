@@ -37,6 +37,7 @@ from apps.api.agents.script_lint import (
     agent_lines,
     closes_the_call,
     collected_label,
+    contact_channels,
     next_steps,
 )
 
@@ -58,6 +59,74 @@ def closing_index(script: CallScript) -> int | None:
     if closes:
         return max(closes, key=lambda i: (steps[i], i))
     return next((i for i, s in enumerate(script.stages) if CLOSING_NAME.match(s.name)), None)
+
+
+def _stage_texts(stage: ConversationStage) -> list[str]:
+    """Everything a step tells the in-call model to say or do: its instruction, its lines in
+    each language, its example turns, its answers and its small steps."""
+    return [
+        stage.instruction,
+        stage.sounds_like,
+        *stage.scripts.values(),
+        *(
+            text
+            for said in stage.examples.values()
+            for text in (*said.turns, said.confused, said.stuck, said.busy)
+        ),
+        *(qa.answer for qa in stage.qa),
+        *(step.action for step in stage.procedure),
+    ]
+
+
+def channel_contradiction_problems(script: CallScript) -> list[str]:
+    """The script's ending and its closing step telling the person to reach the business in
+    different ways, neither naming the other's (production, 27 Nov 2026: the ending said
+    "message us on WhatsApp", the close "call us"). The in-call model reads both, so which
+    way the caller is told is chance. One that names both ways and one that names one of
+    them agree. Only the owner knows which way is right, so this is shown, never repaired
+    (`script_checks`, `heals=False`)."""
+    close = closing_index(script)
+    ending = script.ending.strip()
+    if close is None or not ending:
+        return []
+    said = contact_channels(ending)
+    closing: set[str] = set()
+    for text in _stage_texts(script.stages[close]):
+        closing |= contact_channels(text)
+    if not said or not closing or said & closing:
+        return []
+    step = stage_steps(script.stages)[close]
+    return [
+        f"ending: tells the person to {' or '.join(sorted(said))} the business, while step "
+        f"{step} ({script.stages[close].name}) tells them to {' or '.join(sorted(closing))}; "
+        "give one way to reach the business, the same in both."
+    ]
+
+
+def _instruction_key(text: str) -> str:
+    return " ".join(re.sub(r"[^\w\s]", " ", text).casefold().split())
+
+
+def duplicate_instruction_problems(script: CallScript) -> list[str]:
+    """A step whose instruction is, word for word, an earlier step's: the in-call model reads
+    two steps that ask for one thing and repeats it, or cannot tell when the first is done.
+    Compared without case or punctuation; a near-copy is `repeated_line`'s to judge on the
+    lines, not here."""
+    steps = stage_steps(script.stages)
+    first: dict[str, int] = {}
+    found: list[str] = []
+    for i, stage in enumerate(script.stages):
+        key = _instruction_key(stage.instruction)
+        if not key:
+            continue
+        if key in first:
+            found.append(
+                f"stages.{i}.instruction: gives the same instruction as step "
+                f"{steps[first[key]]}; give this step its own task, or leave it out."
+            )
+        else:
+            first[key] = i
+    return found
 
 
 def _default_next(script: CallScript, index: int) -> str:
@@ -418,8 +487,10 @@ def judged_ask_problems(script: CallScript, judged: Sequence[str]) -> list[str]:
 __all__ = [
     "CLOSING_NAME",
     "caller_action_claimed_problems",
+    "channel_contradiction_problems",
     "closing_index",
     "coverage_problems",
+    "duplicate_instruction_problems",
     "echo_branches",
     "echo_problems",
     "judged_ask_problems",

@@ -23,11 +23,10 @@ from dataclasses import dataclass, field
 from typing import Final
 
 import httpx
-from calevate_shared.call_words import Live as _Live
-from calevate_shared.call_words import words as _words
 from calevate_shared.engine import SARVAM_DEFAULT_LLM
 from calevate_shared.extraction import clip_headline
 from calevate_shared.languages import find_language
+from calevate_shared.spoken_guard import reads_as_romanised
 
 from apps.api.core.logging import get_logger
 from apps.workers import chat
@@ -89,38 +88,6 @@ def has_indic_script(text: str) -> bool:
 
 def is_english(tag: str | None) -> bool:
     return bool(tag) and str(tag).lower().startswith("en")
-
-
-#: English function words: any English sentence of a summary's length carries several.
-_ENGLISH_WORDS: Final = frozenset((
-    "a", "an", "the", "to", "of", "and", "or", "but", "is", "are", "was", "were", "be",
-    "been", "has", "have", "had", "will", "would", "can", "could", "for", "in", "on", "at",
-    "by", "with", "from", "about", "after", "before", "that", "this", "it", "he", "she",
-    "they", "them", "their", "his", "her", "who", "which", "what", "when", "if", "so",
-    "not", "no", "as",
-))  # fmt: skip
-#: Telugu and Hindi grammar words as STT and models romanise them. None is an English word,
-#: and nouns are left out on purpose: a code-mixed Indian summary is mostly English nouns.
-_ROMANISED_WORDS: Final = _Live(lambda: frozenset(_words("call_language._ROMANISED_WORDS")))
-
-
-def reads_as_romanised(text: str) -> bool:
-    """Is this Latin-letter text an Indian language rather than English?
-
-    A summary has only two scripts to tell it apart by, and a romanised Telugu one ("Customer
-    Badangpet lo 5-bedroom house kavali ani, budget 45 lakhs undi ani chepparu", production,
-    25 Oct 2026) is all Latin letters. Grammar words decide it: English ones are in every
-    English sentence and absent from romanised Telugu or Hindi, whose own grammar words are
-    absent from English. Two of theirs outnumbering ours is the call; one stray "kavali"
-    quoted inside an English summary is not.
-    """
-    if has_indic_script(text):
-        return False
-    words = [w.strip(".,;:!?'\"()").casefold() for w in text.split()]
-    english = sum(1 for w in words if w in _ENGLISH_WORDS)
-    known = _ROMANISED_WORDS()
-    romanised = sum(1 for w in words if w in known)
-    return romanised >= 2 and romanised > english
 
 
 def call_language(texts: Sequence[str], *, agent_language: str) -> str:

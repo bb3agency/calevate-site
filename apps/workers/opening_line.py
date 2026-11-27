@@ -22,7 +22,6 @@ budgets. The caller meters the answer or the refusal like any other assist.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Final
@@ -42,12 +41,13 @@ from calevate_shared.spoken_guard import (
     INTRODUCED_NAMES_RULE,
     OWN_LETTER_LANGUAGES,
     OWN_LETTERS_RULE,
+    OWN_SCRIPT_RULE,
     QUESTION_END_RULE,
     TEXTBOOK_RULE,
     UNINTRODUCED_RULE,
-    has_indic_letters,
     introduced_opening_problem,
     latin_word_problem,
+    own_script_problem,
     question_end_problem,
     textbook_problem,
     unintroduced_opening_problem,
@@ -122,33 +122,6 @@ _FORMAT: Final[dict[str, object]] = {
         },
     },
 }
-
-
-#: Four or more English-letter words in a row: a sentence in English, not a product name.
-ENGLISH_RUN: Final = re.compile(r"(?:\b[A-Za-z][A-Za-z']*\b[\s,.?!]+){3,}\b[A-Za-z][A-Za-z']*\b")
-OWN_SCRIPT_RULE: Final = (
-    "written in the call language's own letters, with no sentence in English; an English "
-    "word callers say may stay"
-)
-
-
-def own_script_problem(
-    where: str, text: str, language: str | None, *, names: Sequence[str] = ()
-) -> str | None:
-    """In a call that is not in English, a line with none of its language's letters, or with
-    an English sentence in it (production, 26 Nov 2026: a Telugu opening came back as
-    romanised Telugu with "We are calling to help you install and start using the app.").
-    Single English words stay: the reviewed spoken style keeps some in Telugu (D-861's
-    20 Nov reversal). `latin_word_problem` is the stricter Hindi rule beside it."""
-    if not language or language.split("-")[0].lower() == "en":
-        return None
-    plain = re.sub(r"\{\{[^}]*\}\}", " ", text)
-    for name in names:
-        if name.strip():
-            plain = plain.replace(name.strip(), " ")
-    if not has_indic_letters(plain) or ENGLISH_RUN.search(plain):
-        return f"{where}: write it {OWN_SCRIPT_RULE}"
-    return None
 
 
 def length_problem(where: str, text: str, *, placed: bool = False) -> str | None:
