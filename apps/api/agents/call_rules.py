@@ -36,7 +36,15 @@ from calevate_shared.spoken_guard import (
     without_greeting,
 )
 
-from apps.api.agents.script_lint import NAME_FIELD, NAME_PLACEMENT_RULE, scenario_lines, step_line
+from apps.api.agents.script_lint import (
+    NAME_FIELD,
+    NAME_PLACEMENT_RULE,
+    LintContext,
+    names_caller_action,
+    placed_call_opening,
+    scenario_lines,
+    step_line,
+)
 from apps.api.agents.turn_checks import (
     asked_opening_again,
     claims_done,
@@ -77,18 +85,66 @@ def opening_most(text: str, *, placed: bool = False) -> int:
 #: A placed call's opening: who, why, then permission. Stating the reason is what the person
 #: hangs up without (Varsha, 20-21 Nov 2026: "who are you, what name?"); sources and the
 #: limits of the check in docs/evidence/script-generation-2026-11-21/FLOW.md.
+#: The reason is why THIS person is rung (what they did that led to the call), not the task
+#: the call will do: an opening that said "I'm calling to help you install the app" before
+#: the person placed the business left them asking what was happening (founder, 28 Nov
+#: 2026). The sources lead with the person's own trigger and ask for time after it: "Lead
+#: with context", then permission (gong.io/blog/the-best-and-worst-cold-call-openers-backed-
+#: by-data-from-300m-calls, vendor data); "Calling because I saw {{trigger}}" (nooks.ai/blog-
+#: posts/cold-calling-scripts-12-openers-that-get-you-past-whats-this-about); a warm lead is
+#: told "Reference why they called or what they filled out" (justcall.io/blog/create-the-
+#: ultimate-inbound-sales-call-script.html) and the rep that the person "just signed up"
+#: (close.com/blog/inbound-sales-call-script); all read 28 Nov 2026. The task waits for their
+#: yes, in the first step (`PLACED_FIRST_STAGE_RULE`).
 PLACED_WHO_RULE: Final = (
     "say who is calling: the agent's name, written exactly as the brief gives it"
 )
 PLACED_REASON_RULE: Final = (
-    "say the one reason for the call in a short sentence of its own, ending with a full stop, "
-    "without the names again"
+    "say why this person is being called in a short sentence of its own, ending with a full "
+    "stop, without the names again: what they did that led to this call (registered, "
+    "enquired, bought, booked) as the brief says it of everyone called, else what the "
+    "business does for people like them; never the task for this call (install, set up, fill "
+    "in, open), which waits for their yes"
 )
 PLACED_OPENING_RULE: Final = (
-    "says who is calling (the agent's name as the brief gives it, and the business), then "
-    "the call's one reason from the brief without the names, then asks only whether they "
-    "can talk now: short sentences, each ending with a full stop, the question last"
+    "says who is calling (the agent's name as the brief gives it, and the business, with a "
+    "few words on what it is when its name does not say), then why this person is being "
+    "called, without the names: what they did that led to this call as the brief says it of "
+    "everyone called, else what the business does for people like them, never the task the "
+    "call will do, which waits for their yes; then asks only whether they can talk now: "
+    "short sentences, each ending with a full stop, the question last"
 )
+
+#: What the first step of a placed call does, for every writer of a plan, a step or a whole
+#: script: the opening said who and why, so the step carries what the opening held back.
+PLACED_FIRST_STAGE_RULE: Final = (
+    "On a call the agent places, the opening already said who is calling and why this person "
+    "is called, so the first stage never says either again: it goes on from their yes with "
+    "what the call will do for them (the offer, in a sentence), then starts the task"
+)
+
+#: English words that name a task for the person; the actions done on a phone come from
+#: `script_lint.names_caller_action`, which holds the call languages' own words.
+_TASK_WORDS: Final = re.compile(
+    r"\bset(?:ting)?\s+(?:it\s+|this\s+|that\s+|you\s+)?up\b|\bget(?:ting)?\s+(?:you\s+)?started\b|"
+    r"\bsign(?:ing)?\s+(?:you\s+)?up\b",
+    re.IGNORECASE,
+)
+
+
+def task_first_problem(where: str, text: str) -> str | None:
+    """A placed call's opening that names what the person will do on the call (install, open,
+    type, set up) instead of why they are being called. Read by the action words alone, in
+    any call language that has them: a line that only says what they did ("you registered")
+    names none, and no word list can tell "you installed it" from "to help you install it",
+    so the past action is sent back too and written as what they did in other words."""
+    if not (names_caller_action(text) or _TASK_WORDS.search(_MERGE_FIELD.sub(" ", text))):
+        return None
+    return (
+        f"{where}: names the task for this call before the person knows who is calling and "
+        f"why; {PLACED_REASON_RULE}"
+    )
+
 
 _MERGE_FIELD: Final = re.compile(r"\{\{[^}]*\}\}")
 
@@ -126,6 +182,8 @@ def placed_opening_problems(
     names = [n.strip() for n in (agent_name, business_name) if n.strip()]
     if not any(_gives_reason(s, names) for s in sentences(text)):
         found.append(f"{where}: does not say why the call is made; {PLACED_REASON_RULE}")
+    elif (task := task_first_problem(where, text)) is not None:
+        found.append(task)
     return found
 
 
@@ -279,7 +337,8 @@ OPENING_LINE_RULE: Final = (
     f"{NAME_FIELD} at all, a comma follows it straight away, with no title. For an agent that "
     f"only places calls it greets the person by name with {NAME_FIELD} "
     f"({NAME_PLACEMENT_RULE}) and {PLACED_OPENING_RULE}, in at most "
-    f"{PLACED_OPENING_MAX_CHARS} characters; the business's own questions wait until they "
+    f"{PLACED_OPENING_MAX_CHARS} characters; the task and the business's own questions wait "
+    "until they "
     "say yes. When the brief says the agent introduces itself first, the opening_line "
     "neither greets nor names the agent or the business, and says only the reason and the "
     "question. For an agent that answers calls "
@@ -358,6 +417,7 @@ SCRIPT_FLOW_RULE: Final = (
     "their yes, and its sounds_like neither greets nor asks again whether they can talk or "
     "whether to go ahead with what the opening offered; it goes straight to the reason or "
     "the first action. "
+    f"{PLACED_FIRST_STAGE_RULE}. "
     "Then the stages follow the purpose: ask, never state, what the call needs to know "
     "about the person's situation; the steps one at a time; check it is done by asking what "
     "they see; the last "
@@ -416,6 +476,35 @@ def said_line_problem(
             f"greeting and one question, at most {most} characters."
         )
     return None
+
+
+#: A step's English instruction telling the agent to say why it called, which a placed call's
+#: opening already said.
+_SAYS_WHY_CALLED: Final = re.compile(
+    r"\b(?:say|tell|explain|remind)\w*\s+(?:them\s+|the\s+\w+\s+)?(?:in\s+one\s+line\s+)?"
+    r"(?:that\s+)?(?:why\s+(?:we|you|i|the\s+agent)\s+(?:are\s+|is\s+|am\s+)?call\w*|"
+    r"(?:we\s+are|we're|you\s+are|you're|i\s+am|i'm)\s+calling\s+(?:because|since|as)\b)",
+    re.IGNORECASE,
+)
+
+
+def reason_redone_problems(script: CallScript, context: LintContext) -> list[str]:
+    """The first step of a placed call told to say why the agent called, which the opening
+    already said (`PLACED_OPENING_RULE`): on the Rytu Khata calls of 27-28 Nov 2026 the step
+    "Why we called" said "you registered on our website" straight after the opening had
+    named the reason. Read in the English instruction; the lines that say it again are
+    `opening_redone_line_problems`' (`restated_clause`)."""
+    placed = script.outbound_opening_line.strip() or (
+        script.opening_line.strip() and placed_call_opening("opening_line", context)
+    )
+    if not placed or not script.stages:
+        return []
+    if not _SAYS_WHY_CALLED.search(script.stages[0].instruction):
+        return []
+    return [
+        "stages.0.instruction: says again why the call is made, which the opening line "
+        f"already said; {PLACED_FIRST_STAGE_RULE}."
+    ]
 
 
 def opening_redone_line_problems(script: CallScript) -> list[str]:
@@ -541,6 +630,7 @@ __all__ = [
     "OPENING_CEILING_CHARS",
     "OPENING_LINE_MAX_CHARS",
     "OPENING_LINE_RULE",
+    "PLACED_FIRST_STAGE_RULE",
     "PLACED_OPENING_MAX_CHARS",
     "PLACED_OPENING_RULE",
     "PLACED_REASON_RULE",
@@ -553,7 +643,9 @@ __all__ = [
     "opening_redone_line_problems",
     "placed_opening_problems",
     "reacted_line_problems",
+    "reason_redone_problems",
     "restated_clause",
     "said_line_problem",
+    "task_first_problem",
     "writer_rules",
 ]

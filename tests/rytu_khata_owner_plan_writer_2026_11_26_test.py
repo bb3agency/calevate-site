@@ -79,9 +79,10 @@ async def test_the_written_script_keeps_the_owners_words_and_invents_nothing(
         assert stages[name].instruction == owners[: len(stages[name].instruction)]
         assert len(stages[name].instruction) >= min(len(owners), 200)
     assert "rytukhata.com" in stages["App on the home screen"].instruction
-    # 8. The first step keeps who is calling and why; only the repeated question goes.
+    # 8. The opening says who is calling and asks whether now suits, so the first step loses
+    # both and keeps the rest of the owner's words (28 Nov 2026).
     intro = stages["Introduction"].instruction
-    assert "say who is calling and from Rytu Khata" in intro
+    assert "say who is calling" not in intro
     assert "because they registered on the Rytu Khata website" in intro
     assert "good time" not in intro
     # 10. The owner's own rules reach every step's request, the steps themselves do not.

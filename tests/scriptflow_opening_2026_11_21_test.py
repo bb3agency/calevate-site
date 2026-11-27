@@ -35,9 +35,10 @@ WHERE = "opening_line"
 
 #: The opening the founder heard on 20-21 Nov 2026, in English.
 BARE = "Hello, I am from Rytu Khata, can you talk now?"
+#: The reason is what the person did, never the task (28 Nov 2026).
 GOOD = (
-    "Hello {{lead_name}}, I am Varsha from Rytu Khata. I am calling to help you set up the "
-    "app. Can you talk now?"
+    "Hello {{lead_name}}, I am Varsha from Rytu Khata. You registered on our website last "
+    "week. Can you talk now?"
 )
 #: Who and why in one sentence: the reason has no sentence of its own.
 MERGED = "Hello, I am Varsha from Rytu Khata, calling to help you set up the app. Can you talk now?"
@@ -78,7 +79,7 @@ def test_who_and_why_in_one_sentence_is_split() -> None:
 def test_after_the_agents_introduction_only_the_reason_is_needed() -> None:
     """The engine's AI introduction said who is calling (D-865), so the opening carries the
     reason and the question, and no names."""
-    line = "I am calling to help you set up the app. Can you talk now?"
+    line = "You registered on our website last week. Can you talk now?"
     assert placed_opening_problems(WHERE, line, agent_name=AGENT, introduced=True) == []
     assert placed_opening_problems(WHERE, "Can you talk now?", agent_name=AGENT, introduced=True)
 

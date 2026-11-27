@@ -47,7 +47,8 @@ from calevate_shared.spoken_guard import ENGLISH_RUN, english_problem, has_indic
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_checks, script_proposals
-from apps.api.agents.owner_plan import OwnerPlan, numbered_items, owner_plan
+from apps.api.agents.call_rules import PLACED_FIRST_STAGE_RULE
+from apps.api.agents.owner_plan import OwnerPlan, numbered_items, opening_folded, owner_plan
 from apps.api.agents.retired_lines import retired_line_problem
 from apps.api.agents.script_lint import instruction_fields, offers_call_back
 from apps.api.agents.script_plan import (
@@ -526,6 +527,8 @@ OUTLINE_INSTRUCTION: Final = (
 
 def outline_request(context: ScriptContext, base: CallScript | None, hint: ScriptPlan) -> str:
     lines = [f"What the call is for:\n{context.main_task.strip()}"]
+    if context.placed:
+        lines.append(f"{PLACED_FIRST_STAGE_RULE}.")
     if context.instruction.strip():
         lines.append(f"The owner asks: {' '.join(context.instruction.split())}")
     if base is not None and base.stages:
@@ -569,7 +572,7 @@ async def _read_plan(
     steps = sum(s.number is not None for s in plan.steps) if plan is not None else 0
     if plan is None or (expect is not None and steps != expect):
         return None, answer
-    return plan, answer
+    return (opening_folded(plan) if context.placed else plan), answer
 
 
 async def _ask_steps(

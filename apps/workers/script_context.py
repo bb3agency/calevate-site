@@ -26,7 +26,7 @@ from apps.api.agents import script_proposals
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.capability_manifest import lint_context_for
 from apps.api.agents.languages import LANGUAGE_LABELS
-from apps.api.agents.owner_plan import OwnerPlan, owner_plan
+from apps.api.agents.owner_plan import OwnerPlan, opening_folded, owner_plan
 from apps.api.agents.script_lint import LintContext
 from apps.api.agents.script_plan import EXAMPLE_LIMITS, ExampleLimits
 from apps.api.billing.ai_quota import read_ai_quota
@@ -142,13 +142,13 @@ class ScriptContext:
     @property
     def owner_plan(self) -> OwnerPlan | None:
         """The steps the owner laid out: in the request, else (written whole) in the main
-        task or as Pip read the main task's numbered list."""
+        task or as Pip read the main task's numbered list. On a placed call, without a first
+        step that only redoes the opening (`owner_plan.opening_folded`)."""
         asked = owner_plan(self.instruction)
-        if asked is not None:
-            return asked
-        if self.asked_from is not None and not self.rewrite:
+        if asked is None and self.asked_from is not None and not self.rewrite:
             return None
-        return owner_plan(self.main_task) or self.task_plan
+        plan = asked or owner_plan(self.main_task) or self.task_plan
+        return opening_folded(plan) if plan is not None and self.placed else plan
 
     @property
     def replans(self) -> bool:
