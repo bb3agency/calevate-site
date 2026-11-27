@@ -35725,6 +35725,7 @@ export interface components {
             blocks_live: boolean;
             /** Findings */
             findings: components["schemas"]["ScriptCheckOut"][];
+            size?: components["schemas"]["ScriptSizeOut"] | null;
         };
         /**
          * ScriptContextOut
@@ -35800,6 +35801,8 @@ export interface components {
             procedure_step_max: number;
             /** Procedure Wait Max */
             procedure_wait_max: number;
+            /** Script Target Chars */
+            script_target_chars: number;
             /** Section Detail Max */
             section_detail_max: number;
             /** Section Title Max */
@@ -35863,6 +35866,23 @@ export interface components {
         ScriptRestoreIn: {
             /** Expected Version Id */
             expected_version_id: string | null;
+        };
+        /**
+         * ScriptSizeOut
+         * @description How long the saved script is against its target and its box, in characters, as a
+         *     publish would send it (`script_builder.job_size`). The target never refuses anything.
+         */
+        ScriptSizeOut: {
+            /** Fits */
+            fits: boolean;
+            /** Limit Chars */
+            limit_chars: number | null;
+            /** Over Target */
+            over_target: boolean;
+            /** Script Chars */
+            script_chars: number;
+            /** Target Chars */
+            target_chars: number;
         };
         /**
          * ScriptStep

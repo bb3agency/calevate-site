@@ -43,7 +43,7 @@ from calevate_shared.call_script import (
     is_example_led,
 )
 from calevate_shared.opening_notices import OpeningNotices
-from calevate_shared.spoken_guard import english_problem, has_indic_letters
+from calevate_shared.spoken_guard import ENGLISH_RUN, english_problem, has_indic_letters
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_checks, script_proposals
@@ -78,7 +78,7 @@ from apps.workers.campaign_script_ask import (
     task_steps_text,
 )
 from apps.workers.extraction import ASSIST_LADDER_LEGS
-from apps.workers.opening_line import ENGLISH_RUN, WrittenOpening, opening_problems, write_opening
+from apps.workers.opening_line import WrittenOpening, opening_problems, write_opening
 from apps.workers.script_assist import (
     ANSWER_UNUSABLE_CODE,
     JsonAnswer,

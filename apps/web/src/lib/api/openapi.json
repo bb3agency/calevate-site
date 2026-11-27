@@ -55778,6 +55778,16 @@
             },
             "title": "Findings",
             "type": "array"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScriptSizeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -55981,6 +55991,10 @@
             "title": "Procedure Wait Max",
             "type": "integer"
           },
+          "script_target_chars": {
+            "title": "Script Target Chars",
+            "type": "integer"
+          },
           "section_detail_max": {
             "title": "Section Detail Max",
             "type": "integer"
@@ -56012,6 +56026,7 @@
           "procedure_step_max",
           "procedure_wait_max",
           "instructions_limit",
+          "script_target_chars",
           "native_steps",
           "special_targets"
         ],
@@ -56172,6 +56187,48 @@
           "expected_version_id"
         ],
         "title": "ScriptRestoreIn",
+        "type": "object"
+      },
+      "ScriptSizeOut": {
+        "additionalProperties": false,
+        "description": "How long the saved script is against its target and its box, in characters, as a\npublish would send it (`script_builder.job_size`). The target never refuses anything.",
+        "properties": {
+          "fits": {
+            "title": "Fits",
+            "type": "boolean"
+          },
+          "limit_chars": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Chars"
+          },
+          "over_target": {
+            "title": "Over Target",
+            "type": "boolean"
+          },
+          "script_chars": {
+            "title": "Script Chars",
+            "type": "integer"
+          },
+          "target_chars": {
+            "title": "Target Chars",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "script_chars",
+          "target_chars",
+          "over_target",
+          "limit_chars",
+          "fits"
+        ],
+        "title": "ScriptSizeOut",
         "type": "object"
       },
       "ScriptStep": {

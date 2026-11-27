@@ -48,6 +48,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import (
     fix_guard,
+    prompt_size,
     publishing,
     script_builder,
     test_conversations,
@@ -115,6 +116,9 @@ class ScriptLimitsOut(BaseModel):
     procedure_wait_max: int
     #: The engine's ceiling on the composed instructions, or null where there is none.
     instructions_limit: int | None
+    #: What the owner's script aims to stay under (`prompt_size.SCRIPT_TARGET_CHARS`); never
+    #: a refusal, unlike `instructions_limit`.
+    script_target_chars: int
     #: Sections go to the engine's own step list (ThinnestAI) rather than the text.
     native_steps: bool
     #: Branch targets that are not a section.
@@ -309,6 +313,7 @@ def _limits() -> ScriptLimitsOut:
         procedure_step_max=PROCEDURE_STEP_MAX,
         procedure_wait_max=PROCEDURE_WAIT_MAX,
         instructions_limit=limits.prompt_chars,
+        script_target_chars=prompt_size.SCRIPT_TARGET_CHARS,
         native_steps=limits.native_steps,
         special_targets=sorted(SPECIAL_TARGETS),
     )

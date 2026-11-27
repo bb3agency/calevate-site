@@ -24,9 +24,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_checks
+from apps.api.agents.prompt_size import SCRIPT_TARGET_CHARS, PromptSize
 from apps.api.agents.script_heal import HolderKind, holder_lint_context, table_of
 from apps.api.agents.script_lint import plain
 from apps.api.core.errors import ProblemError
+from apps.api.core.logging import get_logger
+
+log = get_logger(__name__)
 
 #: The refusal's code, and the launch checklist's rule name for the same refusal.
 SCRIPT_NEEDS_FIX: Final = "script_needs_fix"
@@ -56,33 +60,54 @@ class ScriptCheckOut(BaseModel):
     severity: Literal["block", "warn"]
 
 
+class ScriptSizeOut(BaseModel):
+    """How long the saved script is against its target and its box, in characters, as a
+    publish would send it (`script_builder.job_size`). The target never refuses anything."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: The script as the engine receives it (`PromptSize.script_chars`).
+    script_chars: int
+    #: `prompt_size.SCRIPT_TARGET_CHARS`.
+    target_chars: int
+    over_target: bool
+    #: The longest the script can be beside the platform's layers now; null where the
+    #: engine has no box. Over it, Put it live and Start refuse (`PromptTooLongError`).
+    limit_chars: int | None
+    fits: bool
+
+
 class ScriptChecksOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     findings: list[ScriptCheckOut]
     #: Whether Put it live (and Start) would refuse this script now.
     blocks_live: bool
+    #: Null while there is no script, or when it cannot be measured now.
+    size: ScriptSizeOut | None = None
 
 
 async def _holder(
     session: AsyncSession, kind: HolderKind, holder_id: UUID
-) -> tuple[UUID, CallScript | None]:
+) -> tuple[UUID, UUID, CallScript | None]:
+    """The holder's tenant, agent and saved script."""
     row = (
         await session.execute(
-            text(f"SELECT agent_id, script FROM {table_of(kind)} WHERE id = :h"),
+            text(f"SELECT tenant_id, agent_id, script FROM {table_of(kind)} WHERE id = :h"),
             {"h": holder_id},
         )
     ).first()
     if row is None:
         raise ProblemError.not_found("Campaign" if kind == "campaign" else "Inbound line")
-    return UUID(str(row[0])), CallScript.model_validate(row[1]) if row[1] else None
+    script = CallScript.model_validate(row[2]) if row[2] else None
+    return UUID(str(row[0])), UUID(str(row[1])), script
 
 
 async def holder_findings(
     session: AsyncSession, kind: HolderKind, holder_id: UUID
 ) -> list[script_checks.Finding]:
     """Every check's findings on the holder's saved script; [] while it has none."""
-    agent_id, script = await _holder(session, kind, holder_id)
+    _tenant_id, agent_id, script = await _holder(session, kind, holder_id)
     if script is None:
         return []
     lint = await holder_lint_context(session, kind, holder_id, agent_id)
@@ -97,8 +122,22 @@ def _stage_id(script: CallScript | None, path: str) -> str | None:
     return script.stages[index].id if index < len(script.stages) else None
 
 
+def size_out(size: PromptSize | None) -> ScriptSizeOut | None:
+    if size is None:
+        return None
+    return ScriptSizeOut(
+        script_chars=size.script_chars,
+        target_chars=SCRIPT_TARGET_CHARS,
+        over_target=size.over_target,
+        limit_chars=size.script_limit,
+        fits=size.fits,
+    )
+
+
 def checks_out(
-    findings: list[script_checks.Finding], script: CallScript | None = None
+    findings: list[script_checks.Finding],
+    script: CallScript | None = None,
+    size: PromptSize | None = None,
 ) -> ScriptChecksOut:
     return ScriptChecksOut(
         findings=[
@@ -114,18 +153,36 @@ def checks_out(
             for f in findings
         ],
         blocks_live=bool(script_checks.blocking(findings)),
+        size=size_out(size),
     )
+
+
+async def _measured(
+    session: AsyncSession, kind: HolderKind, holder_id: UUID, tenant_id: UUID
+) -> PromptSize | None:
+    """The saved script measured as Put it live or Start would send it. A config the publish
+    path refuses for another reason leaves the size unknown: the findings are still worth
+    showing, and that refusal is Put it live's to state, in its own words."""
+    from apps.api.agents.script_builder import job_size
+
+    try:
+        return await job_size(session, kind=kind, tenant_id=tenant_id, job_id=holder_id)
+    except ProblemError as exc:
+        log.info("script_size_unmeasured", extra={"holder_id": str(holder_id), "code": exc.code})
+        return None
 
 
 async def holder_checks(
     session: AsyncSession, kind: HolderKind, holder_id: UUID
 ) -> ScriptChecksOut:
-    """The checks endpoint's answer: every finding on the holder's saved script."""
-    agent_id, script = await _holder(session, kind, holder_id)
+    """The checks endpoint's answer: every finding on the holder's saved script, and its
+    size against the target and the box."""
+    tenant_id, agent_id, script = await _holder(session, kind, holder_id)
     if script is None:
         return checks_out([])
     lint = await holder_lint_context(session, kind, holder_id, agent_id)
-    return checks_out(script_checks.run(script, lint), script)
+    size = await _measured(session, kind, holder_id, tenant_id)
+    return checks_out(script_checks.run(script, lint), script, size)
 
 
 def refusal_reason(blocking: list[script_checks.Finding]) -> str:
@@ -157,10 +214,12 @@ __all__ = [
     "SCRIPT_NEEDS_FIX",
     "ScriptCheckOut",
     "ScriptChecksOut",
+    "ScriptSizeOut",
     "blocking_findings",
     "checks_out",
     "holder_checks",
     "holder_findings",
     "refusal_reason",
     "refuse_if_blocked",
+    "size_out",
 ]

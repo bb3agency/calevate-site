@@ -28,8 +28,10 @@ from collections.abc import Sequence
 from typing import Final, Literal
 
 from calevate_shared.call_script import substitute_variables
+from calevate_shared.call_words import Live as _Live
 from calevate_shared.call_words import LivePattern as _LivePattern
 from calevate_shared.call_words import extend as _extend
+from calevate_shared.call_words import words as _words
 from calevate_shared.spoken_style import (
     caller_guidance,
     pack_facts_rule,
@@ -229,6 +231,70 @@ def latin_word_problem(
     return f"{where}: writes {quoted} in English letters; {OWN_LETTERS_RULE}"
 
 
+#: Four or more English-letter words in a row: a sentence in English, not a product name.
+ENGLISH_RUN: Final = re.compile(r"(?:\b[A-Za-z][A-Za-z']*\b[\s,.?!]+){3,}\b[A-Za-z][A-Za-z']*\b")
+OWN_SCRIPT_RULE: Final = (
+    "written in the call language's own letters, with no sentence in English; an English "
+    "word callers say may stay"
+)
+
+
+def own_script_problem(
+    where: str, text: str, language: str | None, *, names: Sequence[str] = ()
+) -> str | None:
+    """In a call that is not in English, a line with none of its language's letters, or with
+    an English sentence in it (production, 26 Nov 2026: a Telugu opening came back as
+    romanised Telugu with "We are calling to help you install and start using the app.").
+    Single English words stay: the reviewed spoken style keeps some in Telugu (D-861's
+    20 Nov reversal). `latin_word_problem` is the stricter Hindi rule beside it. Here rather
+    than beside the opening writer because the script checks (`apps/api/agents/
+    script_checks`) read it too, and the writer imports those checks."""
+    if not language or language.split("-")[0].lower() == "en":
+        return None
+    plain = re.sub(r"\{\{[^}]*\}\}", " ", text)
+    for name in names:
+        if name.strip():
+            plain = plain.replace(name.strip(), " ")
+    if not has_indic_letters(plain) or ENGLISH_RUN.search(plain):
+        return f"{where}: write it {OWN_SCRIPT_RULE}"
+    return None
+
+
+#: English function words: any English sentence of a summary's length carries several.
+_ENGLISH_WORDS: Final = frozenset((
+    "a", "an", "the", "to", "of", "and", "or", "but", "is", "are", "was", "were", "be",
+    "been", "has", "have", "had", "will", "would", "can", "could", "for", "in", "on", "at",
+    "by", "with", "from", "about", "after", "before", "that", "this", "it", "he", "she",
+    "they", "them", "their", "his", "her", "who", "which", "what", "when", "if", "so",
+    "not", "no", "as",
+))  # fmt: skip
+#: Telugu and Hindi grammar words as STT and models romanise them. None is an English word,
+#: and nouns are left out on purpose: a code-mixed Indian summary is mostly English nouns.
+#: The key keeps the name it was saved under on Ops > Call words.
+_ROMANISED_WORDS: Final = _Live(lambda: frozenset(_words("call_language._ROMANISED_WORDS")))
+
+
+def reads_as_romanised(text: str) -> bool:
+    """Is this Latin-letter text an Indian language rather than English?
+
+    A summary has only two scripts to tell it apart by, and a romanised Telugu one ("Customer
+    Badangpet lo 5-bedroom house kavali ani, budget 45 lakhs undi ani chepparu", production,
+    25 Oct 2026) is all Latin letters. Grammar words decide it: English ones are in every
+    English sentence and absent from romanised Telugu or Hindi, whose own grammar words are
+    absent from English. Two of theirs outnumbering ours is the call; one stray "kavali"
+    quoted inside an English summary is not. Read by the call summaries
+    (`workers/call_language`) and by the script check on instruction fields
+    (`script_lint.romanised_instruction_problems`).
+    """
+    if has_indic_letters(text):
+        return False
+    words = [w.strip(".,;:!?'\"()").casefold() for w in text.split()]
+    english = sum(1 for w in words if w in _ENGLISH_WORDS)
+    known = _ROMANISED_WORDS()
+    romanised = sum(1 for w in words if w in known)
+    return romanised >= 2 and romanised > english
+
+
 def question_end_problem(where: str, text: str) -> str | None:
     """An opening line that does not hand the turn over with a question; None when it does."""
     if text.strip().endswith("?"):
@@ -376,11 +442,13 @@ def generation_guidance(
 
 
 __all__ = [
+    "ENGLISH_RUN",
     "HONORIFICS_PER_LINE",
     "INTRODUCED_GREETING_RULE",
     "INTRODUCED_NAMES_RULE",
     "OWN_LETTERS_RULE",
     "OWN_LETTER_LANGUAGES",
+    "OWN_SCRIPT_RULE",
     "QUESTION_END_RULE",
     "SPOKEN_LINE_RULES",
     "TEXTBOOK_RULE",
@@ -397,7 +465,9 @@ __all__ = [
     "latin_words",
     "names_used",
     "opens_with_greeting",
+    "own_script_problem",
     "question_end_problem",
+    "reads_as_romanised",
     "textbook_note",
     "textbook_problem",
     "textbook_words",

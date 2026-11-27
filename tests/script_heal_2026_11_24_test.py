@@ -42,7 +42,13 @@ PLAIN = "Tap Add to Home screen at the bottom."
 
 def _stage(sid: str, line: str, **extra: Any) -> ConversationStage:
     return ConversationStage.model_validate(
-        {"id": sid, "name": sid, "instruction": "Help them.", "sounds_like": line, **extra}
+        {
+            "id": sid,
+            "name": sid,
+            "instruction": f"Help them with {sid}.",
+            "sounds_like": line,
+            **extra,
+        }
     )
 
 

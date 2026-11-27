@@ -58,6 +58,7 @@ from apps.api.agents.script_lint import (
     opening_redone_problems,
     opening_shape_problems,
     order_problems,
+    own_script_line_problems,
     persona_problem,
     placeholder_problems,
     promise_problem,
@@ -65,6 +66,7 @@ from apps.api.agents.script_lint import (
     pronunciation_problems,
     questions_problem,
     repeated_line_problems,
+    romanised_instruction_problems,
     same_ending_problems,
     same_opener_problems,
     spoken_fields,
@@ -84,7 +86,8 @@ Severity = Literal["block", "warn"]
 #: language; `examples`: `stages.N.examples.<tag>.turns.M`, `.confused`, `.stuck`, `.busy`;
 #: `procedure`: `stages.N.procedure.M.action`; `qa`: a step's answers; `style`: sample
 #: phrases and the example call; `structure`: the step graph, outcomes, collect and
-#: pronunciations, which no line holds.
+#: pronunciations, which no line holds; `frame`: the English parts outside the steps (the
+#: ending, the push-back answers, the quick facts, who the agent is, its goal and tone).
 Reads = Literal[
     "opening",
     "instruction",
@@ -95,6 +98,7 @@ Reads = Literal[
     "qa",
     "style",
     "structure",
+    "frame",
 ]
 #: The letters a check reads a Telugu or Hindi line in: the language's own (`native`) and
 #: English letters (`latin`, romanised speech).
@@ -168,9 +172,9 @@ class Check:
     #: Part of the call's shape (`script_lint.flow_problems`), which the writer refuses on
     #: its own and `script_mistakes` leaves to that refusal.
     flow: bool = False
-    #: A check that also faults what this one does on some lines: where both fault one
-    #: line, only that check's finding stands, so a repair hears one problem per line.
-    defers_to: str | None = None
+    #: Checks that also fault what this one does on some lines: where one of them faults the
+    #: same line, only its finding stands, so a repair hears one problem per line.
+    defers_to: tuple[str, ...] = ()
 
 
 def _lint(check: Callable[[CallScript], list[str]]) -> Detect:
@@ -677,7 +681,7 @@ CHECKS: Final[tuple[Check, ...]] = (
         "Ask one thing and wait.",
         "'?' in any language; English lists",
         _spoken(lambda path, text, _lint: questions_problem(path, text)),
-        defers_to="too_long",
+        defers_to=("too_long",),
     ),
     Check(
         "opening_shape",
@@ -768,6 +772,55 @@ CHECKS: Final[tuple[Check, ...]] = (
         "Keep the owner's steps, in their order, with their outcomes and ways out.",
         "structure (owner's numbered steps)",
         _plan,
+    ),
+    # The contradiction checks (founder, 27 Nov 2026). All `warn`: each MAY send a call
+    # wrong, none is wrong on every call it reaches (D-989), and two ways to reach the
+    # business may both be real, which only the owner knows.
+    Check(
+        "ending_vs_close",
+        frozenset(
+            {"frame", "instruction", "sounds_like", "scripts", "examples", "qa", "procedure"}
+        ),
+        ENGLISH,
+        LATIN,
+        "warn",
+        "Give one way to reach the business, the same in the ending and the close.",
+        "code (English: script_lint.CONTACT_CHANNELS)",
+        _lint(script_shape.channel_contradiction_problems),
+        heals=False,
+    ),
+    Check(
+        "same_instruction",
+        frozenset({"instruction"}),
+        ANY_LANGUAGE,
+        BOTH_LETTERS,
+        "warn",
+        "Give each step its own task.",
+        "structure (instruction text)",
+        _lint(script_shape.duplicate_instruction_problems),
+    ),
+    Check(
+        "own_letters",
+        LINES,
+        frozenset({"te", "hi"}),
+        NATIVE,
+        "warn",
+        "Write the line in the call language's own letters, with no English sentence.",
+        "spoken_guard letters, ENGLISH_RUN",
+        _with_lint(own_script_line_problems),
+        # A line wholly in English letters is `wrong_language`'s; English letters in a Hindi
+        # line are `latin_words`', the stricter rule.
+        defers_to=("wrong_language", "latin_words"),
+    ),
+    Check(
+        "romanised_instruction",
+        frozenset({"frame", "instruction", "procedure"}),
+        frozenset({"te", "hi"}),
+        LATIN,
+        "warn",
+        "Write instructions and quick facts in plain English.",
+        "call_language._ROMANISED_WORDS (call_words.json)",
+        _lint(romanised_instruction_problems),
     ),
 )
 
@@ -862,7 +915,7 @@ def run(
     return [
         f
         for f in found.values()
-        if (defers := BY_ID[f.check].defers_to) is None or (defers, f.path) not in faulted
+        if not any((other, f.path) in faulted for other in BY_ID[f.check].defers_to)
     ]
 
 

@@ -54,7 +54,12 @@ from calevate_shared.call_script import (
 from calevate_shared.call_words import LivePattern as _LivePattern
 from calevate_shared.call_words import extend as _extend
 from calevate_shared.engine import NAME_VARIABLE
-from calevate_shared.spoken_guard import empty_title, has_indic_letters
+from calevate_shared.spoken_guard import (
+    empty_title,
+    has_indic_letters,
+    own_script_problem,
+    reads_as_romanised,
+)
 
 from apps.api.compliance.call_purpose import Finding, first_finding
 
@@ -665,6 +670,8 @@ _PLACES: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
     (re.compile(r"^example_exchange\.\d+\."), "The example call"),
     (re.compile(r"^style\.sample_phrases\.\d+"), "A sample phrase"),
     (re.compile(r"^style\."), "How it speaks"),
+    (re.compile(r"^ending$"), "The ending"),
+    (re.compile(r"^faqs\.(\d+)\."), "Quick fact {n}"),
     (re.compile(r"^script$"), "The script"),
 )
 
@@ -1427,6 +1434,87 @@ def agent_lines(script: CallScript) -> list[tuple[str, str]]:
     ]
 
 
+#: `stages.N.qa.M.answer` is the English answer (`ScenarioQa`); each language's is under
+#: `translations.<tag>`.
+_ENGLISH_ANSWER: Final = re.compile(r"^stages\.\d+\.qa\.\d+\.answer$")
+_TRANSLATED_ANSWER: Final = re.compile(
+    r"^stages\.\d+\.qa\.\d+\.translations\.([A-Za-z]{2,3}-[A-Za-z]{2})\."
+)
+
+
+def own_script_line_problems(script: CallScript, context: LintContext) -> list[str]:
+    """A line the agent says, in a call language with letters of its own, written with none
+    of them or holding an English sentence (`spoken_guard.own_script_problem`, the rule the
+    opening writer holds its line to). Production, 27 Nov 2026: a campaign's lines came back in
+    romanised Telugu, and a Telugu line carried a whole English sentence. Every line the agent
+    says or copies is read, the openings and an owner's own lines included, each in its own
+    language (`line_language`)."""
+    names = (context.business_name, context.agent_name)
+    found: list[str] = []
+    for path, text in agent_lines(script):
+        if _ENGLISH_ANSWER.match(path):
+            continue
+        tagged = _TRANSLATED_ANSWER.match(path)
+        language = tagged.group(1) if tagged else line_language(path, context.language)
+        if (problem := own_script_problem(path, text, language, names=names)) is not None:
+            found.append(problem)
+    return found
+
+
+def romanised_instruction_problems(script: CallScript) -> list[str]:
+    """An instruction to the in-call model, or a quick fact, written as an Indian language in
+    English letters (`spoken_guard.reads_as_romanised`). These fields are plain English by
+    the founder's language-pack decision of 19 Oct 2026 (`spoken_guard`'s module docstring,
+    `workers/step_writer.FRAME_INSTRUCTION`): the model says them in the call language in its
+    own words. Production, 27 Nov 2026: a campaign's push-back answers and quick facts were
+    romanised Telugu, which is neither. Not the native-letter case: an instruction in Telugu
+    letters is the owner's to keep (`spoken_guard.english_problem` binds only the AI)."""
+    fields = [
+        *instruction_fields(script),
+        *((f"faqs.{i}.answer", faq.answer) for i, faq in enumerate(script.faqs)),
+    ]
+    return [
+        f"{path}: is written in an Indian language in English letters; write it in plain "
+        "English, which the agent says in the call language in its own words."
+        for path, text in fields
+        if text.strip() and reads_as_romanised(text)
+    ]
+
+
+#: An invitation to reach the business by message, or by phone: the contact channel a line
+#: gives the person. English only, because the ending and a step's instruction are English
+#: (`romanised_instruction_problems`); a line in Telugu or Hindi letters is not read for it
+#: until those words are written and reviewed by a native speaker (`call_words.json`).
+_MESSAGE_US: Final = re.compile(
+    r"\b(?:message|text|msg|whats\s?app)\s+(?:us|the\s+(?:team|office|business))\b"
+    r"|\b(?:send|drop|leave)\s+(?:us\s+)?an?\s+(?:message|text|whats\s?app)\b"
+    r"|\b(?:message|text|write to|reach|contact)\s+us\s+on\s+whats\s?app\b",
+    re.IGNORECASE,
+)
+_CALL_US: Final = re.compile(
+    r"\b(?:call|phone|ring)\s+(?:us|the\s+(?:team|office|shop|clinic|store|helpline))\b"
+    r"|\bgive\s+us\s+a\s+(?:call|ring)\b"
+    r"|\bcall\s+(?:on\s+)?(?:this|our)\s+number\b",
+    re.IGNORECASE,
+)
+CONTACT_CHANNELS: Final[dict[str, re.Pattern[str]]] = {"message": _MESSAGE_US, "call": _CALL_US}
+
+
+def contact_channels(text: str) -> frozenset[str]:
+    """The ways `text` tells the person to reach the business ("message", "call"), each read
+    only in a clause that does not itself say not to ("don't call us, message us on
+    WhatsApp" gives the person one way)."""
+    found: set[str] = set()
+    for sentence in re.split(r"(?<=[.?!।])\s+", text):
+        for clause in _CLAUSE_BREAK.split(sentence):
+            if not clause or _NEGATED.search(clause):
+                continue
+            found.update(
+                name for name, pattern in CONTACT_CHANNELS.items() if pattern.search(clause)
+            )
+    return frozenset(found)
+
+
 #: A bracketed aside, or a lone bracket. Every character of a line the agent copies is
 #: spoken (D-739), so "యాడ్ టు హోమ్ స్క్రీన్ (Add to Home screen)" is said twice, once with its
 #: brackets read as pauses. Curly braces are merge fields (`{{name}}`) and are not brackets.
@@ -1801,6 +1889,7 @@ def known_value_asked_problems(script: CallScript) -> list[str]:
 
 __all__ = [
     "BRACKETED",
+    "CONTACT_CHANNELS",
     "NAME_FIELD",
     "NAME_PLACEMENT_RULE",
     "OPENING_FIELDS",
@@ -1820,6 +1909,7 @@ __all__ = [
     "caller_paths",
     "closes_the_call",
     "collected_label",
+    "contact_channels",
     "empty_title_problems",
     "fake_branch_problems",
     "flow_problems",
@@ -1838,6 +1928,7 @@ __all__ = [
     "opening_redone_problems",
     "order_problems",
     "other_persona",
+    "own_script_line_problems",
     "placed_call_opening",
     "placed_opening_problem",
     "placeholder_instruction",
@@ -1848,6 +1939,7 @@ __all__ = [
     "question_count",
     "reachable_steps",
     "repeated_line_problems",
+    "romanised_instruction_problems",
     "same_ending_problems",
     "same_opener_problems",
     "scenario_lines",
