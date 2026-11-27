@@ -20,13 +20,14 @@ export interface ScriptSize {
 const whole = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
 
 /**
- * The holder's `script_size`, or null when the server does not send one (or sends a shape
- * this screen cannot read), so the meter hides rather than guess a number.
+ * The `size` of a script's checks (`GET …/script/checks`, `ScriptSizeOut`), or null when the
+ * server sends none (no script, or an engine with no box) or a shape this screen cannot
+ * read, so the meter hides rather than guess a number.
  */
-export function scriptSizeOf(holder: object): ScriptSize | null {
-  const size = (holder as { script_size?: unknown }).script_size;
+export function scriptSizeOf(checks: { size?: unknown } | null | undefined): ScriptSize | null {
+  const size = checks?.size;
   if (typeof size !== "object" || size === null) return null;
-  const { chars, target_chars, limit_chars } = size as Record<string, unknown>;
+  const { script_chars: chars, target_chars, limit_chars } = size as Record<string, unknown>;
   if (!whole(chars) || !whole(target_chars) || !whole(limit_chars) || target_chars === 0 || limit_chars === 0) {
     return null;
   }

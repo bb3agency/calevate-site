@@ -404,11 +404,12 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
   const editButton = useRef<HTMLButtonElement>(null);
   const proposal = line.proposal;
   const script = line.script;
-  const size = scriptSizeOf(line);
+
   const hasTask = line.main_task.trim() !== "";
   const drafting = proposal?.status === "drafting";
   // The saved script's checks, each on its line in Edit script (`script_gate`).
   const checks = useScriptChecks(session, { kind: "line", id: line.id }, script);
+  const size = scriptSizeOf(checks.data);
   const warnings = useMemo(
     () => (checks.isSuccess ? findingWarnings(checks.data.findings) : []),
     [checks.isSuccess, checks.data],

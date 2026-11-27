@@ -201,11 +201,11 @@ describe("ActionButton's error face", () => {
 
 describe("the script's length", () => {
   it("hides when the server sends no size, or one it cannot read", () => {
-    expect(scriptSizeOf({})).toBeNull();
-    expect(scriptSizeOf({ script_size: null })).toBeNull();
-    expect(scriptSizeOf({ script_size: { chars: 10 } })).toBeNull();
-    expect(scriptSizeOf({ script_size: { chars: 10, target_chars: 0, limit_chars: 8000 } })).toBeNull();
-    expect(scriptSizeOf({ script_size: { chars: 6812, target_chars: 7000, limit_chars: 8000 } })).toEqual({
+    expect(scriptSizeOf(undefined)).toBeNull();
+    expect(scriptSizeOf({ size: null })).toBeNull();
+    expect(scriptSizeOf({ size: { script_chars: 10 } })).toBeNull();
+    expect(scriptSizeOf({ size: { script_chars: 10, target_chars: 0, limit_chars: 8000 } })).toBeNull();
+    expect(scriptSizeOf({ size: { script_chars: 6812, target_chars: 7000, limit_chars: 8000 } })).toEqual({
       chars: 6812,
       target_chars: 7000,
       limit_chars: 8000,

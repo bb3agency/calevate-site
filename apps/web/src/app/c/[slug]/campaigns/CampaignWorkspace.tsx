@@ -48,7 +48,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { LeftOutNotice, lineWarningsOf } from "../agents/[agentId]/script/PipProposal";
 import type { PartKey } from "../agents/[agentId]/script/scriptDiff";
 import { ScriptNeedsFix } from "@/components/scriptChecks/ScriptNeedsFix";
-import { isPromptTooLong, isScriptNeedsFix } from "@/lib/api/scriptChecks";
+import { isPromptTooLong, isScriptNeedsFix, useScriptChecks } from "@/lib/api/scriptChecks";
 
 import { AddSourceForm, SOURCES_HINT, SOURCES_INFO } from "./AddSource";
 import { PipGenerateBand } from "./PipGenerateBand";
@@ -342,7 +342,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   const [reviewing, setReviewing] = useState<string | null>(null);
   const proposal = space.proposal;
   const script = space.script;
-  const size = scriptSizeOf(space);
+  const size = scriptSizeOf(useScriptChecks(session, { kind: "campaign", id: campaignId }, script).data);
   const hasTask = space.main_task.trim() !== "";
   // Pip rewrites one part in a chosen language; the draft then comes back for review here.
   const settings = useCampaignSettings(session, campaignId, space.agent_id).data;
