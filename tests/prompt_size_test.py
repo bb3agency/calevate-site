@@ -109,7 +109,7 @@ def test_every_layer_is_counted_and_the_script_adds_up() -> None:
     script_layer = next(p.chars for p in size.layers if p.key == "client_script")
     assert sum(p.chars for p in size.script_parts) == script_layer
     labels = {p.label for p in size.script_parts}
-    assert {"Business line", "Objections", "Speaking style", "Names and how to say them"} <= labels
+    assert {"Objections", "Speaking style", "Names and how to say them"} <= labels
     assert "Pinned facts" in labels
 
 
@@ -466,12 +466,12 @@ async def test_the_tool_prints_counts_for_one_agent_and_never_text(
 ) -> None:
     from scripts import prompt_size as tool
 
-    tenant_id, agent_id = await _agent_with_script(f"[BUSINESS]\n{SECRET}\n" + "word " * 4_200)
+    tenant_id, agent_id = await _agent_with_script(f"[GOAL]\n{SECRET}\n" + "word " * 4_200)
     with _selected(_thinnest()):
         code = await tool.one(agent_id)
     out = capsys.readouterr().out
     assert code == 1
-    assert "OVER by" in out and "Your script" in out and "Business line" in out
+    assert "OVER by" in out and "Your script" in out and "Goal" in out
     assert SECRET not in out and TRUTHFUL_ANSWER_MARKER not in out and "word word" not in out
     del tenant_id
 

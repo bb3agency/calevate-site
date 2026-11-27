@@ -136,5 +136,5 @@ def test_the_locked_blocks_are_unchanged_and_still_last() -> None:
     prompt = compose_engine_prompt(_config("outbound", compile_call_script(_guided_script())))
     truthful = truthful_answer_directive(call_is_recorded=True)
     assert CONFIDENTIALITY_RULE in prompt and truthful in prompt
-    assert prompt.index(VOICE_STYLE_GUIDANCE) < prompt.index(CONFIDENTIALITY_RULE)
+    assert prompt.index("--- HOW TO SPEAK ---") < prompt.index(CONFIDENTIALITY_RULE)
     assert prompt.index(CONFIDENTIALITY_RULE) < prompt.index(truthful)

@@ -2595,7 +2595,8 @@ class ThinnestEngine:
             "instructions": instructions,
             "greeting": greeting,
             # One line about the business (update-agent.md:531-534, at most 200 characters),
-            # from the script's [BUSINESS] section; empty for a script without one.
+            # from the script's [BUSINESS] section; empty for a script without one. The one
+            # carrier of that line: the instructions leave it out (`engine.fenced_script`).
             "businessDescription": self._within(
                 business_line_of(cfg.system_prompt),
                 BUSINESS_DESCRIPTION_MAX_CHARS,

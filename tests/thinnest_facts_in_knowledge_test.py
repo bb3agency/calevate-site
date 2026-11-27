@@ -93,9 +93,12 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: 26 Nov 2026 (script rebuild, DESIGN §3.5): the register quotes no example exchanges, the
 #: [OPENING] line is not repeated inside the client fence, and a step's lines are only
 #: examples.
+#: 27 Nov 2026 (said once): the placed-call claim rule holds "even if a step's line says it"
+#: instead of calling a step's lines only examples; "you have their number" says only what to
+#: ask; a script's own [ENDING], step lead and business line replace the platform's copies.
 PINNED = (
-    "ba777ea4824853656bbb7836f9c715cd8b3e50f275042be0c1115b9637480275",
-    "00168f4c7fc613355b7f56fff5e286fe3eed299c8ffd1674a5a06aa68cf1b16b",
+    "cbd45e969b4d30a722ea8b84126de2de80e3f942460bd6d13d35a1e8b277b1f7",
+    "afb33f719e7ccf21f3d9450f16a0c960ac4d0dbd129c171da7fff2258fddf4f7",
 )
 
 

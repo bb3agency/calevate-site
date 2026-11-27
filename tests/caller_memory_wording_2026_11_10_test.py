@@ -35,7 +35,7 @@ def _placed_with_memory() -> AgentConfig:
 
 
 def test_what_they_said_counts_only_when_said_on_this_call() -> None:
-    assert "unless they said so on this call or THIS CALL says so;" in CALL_REASON_RULE
+    assert "unless they said so on this call or THIS CALL says so," in CALL_REASON_RULE
     assert "unless they or THIS CALL said so" not in CALL_REASON_RULE
 
 
