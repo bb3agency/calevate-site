@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.91 — 27-Nov-2026
+
+- "Edit script" is now a short list of the script's parts. Tap one to open just that part,
+  change it and save; only one part is open at a time. On a campaign, the steps and the
+  opening are edited on the call flow instead.
+- The opening box on the call flow opens its own small editor beside it, like a step, with
+  "Ask Pip to change it".
+- A campaign's call flow now shows the opening its calls actually say.
+
 ## 0.5.90 — 27-Nov-2026
 
 - A script too long for the calling system is now brought inside it by trimming example
