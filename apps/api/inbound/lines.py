@@ -260,6 +260,10 @@ async def create_line(
         )
     await queue_job(session, "line", line_id)
     await step_outcomes.queue_after_save(session, "line", line_id, script)
+    # A new line rings its missed callers back unless the owner switches it off (W4.2).
+    from apps.api.follow_ups.starters import default_line_call_back
+
+    await default_line_call_back(session, tenant_id=tenant_id, line_id=line_id, user_id=created_by)
     return line_id
 
 

@@ -19,6 +19,7 @@ from uuid import UUID
 
 from calevate_shared.extraction import OutcomeTag
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.llm_tiers import client_model_labels
@@ -38,6 +39,7 @@ from apps.api.core.stepup import ActionCode, ClientActionCode, client_confirmati
 from apps.api.crm import columns as lead_column_registry
 from apps.api.crm import export_tickets, lead_search, lens, saved_views, service, translation
 from apps.api.crm.attention import attention_queue
+from apps.api.crm.call_retention import call_retention
 from apps.api.crm.captured import (
     captured_fields,
     lead_holder_fields,
@@ -232,6 +234,30 @@ async def _require_export_code(
     if principal.impersonating:
         return
     await code.require(confirm, client_confirmation(request, verb))
+
+
+class CallsKeptOut(BaseModel):
+    """How long this account keeps what its calls leave behind, from its own retention
+    settings (`crm/call_retention`); null when the account has no period for it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    recording_days: int | None
+    transcript_days: int | None
+
+
+@router.get(
+    "/calls/kept",
+    # Declared before `/calls/{call_id}`, which would otherwise take "kept" as an id.
+    response_model=CallsKeptOut,
+    openapi_extra=permission_meta("calls:read"),
+    summary="How long this account keeps call recordings and transcripts",
+)
+async def get_call_retention(
+    session: Session, _: Principal = Depends(requires("calls:read"))
+) -> CallsKeptOut:
+    kept = await call_retention(session)
+    return CallsKeptOut(recording_days=kept.recording_days, transcript_days=kept.transcript_days)
 
 
 @router.get(

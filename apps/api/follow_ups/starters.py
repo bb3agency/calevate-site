@@ -14,6 +14,7 @@ field nobody captures never runs.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Final, Literal
 from uuid import UUID
@@ -26,8 +27,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.call_outcomes import outcomes_in_use
 from apps.api.campaigns.notes import account_fields
 from apps.api.follow_ups import definition as d
+from apps.api.follow_ups.models import MAX_NAME_CHARS
 
 NIL: Final = UUID(int=0)
+#: The platform outcome of a call that never connected (`crm/outcomes`, rule 1).
+MISSED: Final = "missed"
+MISSED_CALL_STARTER: Final = "missed_call_callback"
 Need = Literal["outbound_agent", "whatsapp_template"]
 
 
@@ -201,24 +206,26 @@ def _lead_starters(account: _Account) -> list[Starter]:
             key="missed_call_callback",
             name="Call back missed calls",
             description="Five minutes after a call you missed, call them back.",
-            trigger=d.CallEndedTrigger(kind="call_ended", calls="inbound", outcomes=["missed"]),
-            steps=_steps(
-                [
-                    {"id": "s1", "kind": "wait", "minutes": 5, "next": "s2"},
-                    {
-                        "id": "s2",
-                        "kind": "call",
-                        "agent_id": agent,
-                        "next": {"answered": "s3"},
-                    },
-                    {"id": "s3", "kind": "decide", "on": {"answered": None}},
-                ]
-            ),
+            trigger=d.CallEndedTrigger(kind="call_ended", calls="inbound", outcomes=[MISSED]),
+            steps=_missed_call_steps(agent),
             settings=d.Settings(goal="answered"),
             available=True,
             needs=needs("outbound_agent"),
         ),
     ]
+
+
+def _missed_call_steps(agent: str) -> list[d.AnyStep]:
+    """Five minutes after the missed call, one call back (no retries). The call step books a
+    call-back that the call-back tick dials through the dispatch gate, inside the account's
+    calling hours, like every other call (`runner` module docstring)."""
+    return _steps(
+        [
+            {"id": "s1", "kind": "wait", "minutes": 5, "next": "s2"},
+            {"id": "s2", "kind": "call", "agent_id": agent, "next": {"answered": "s3"}},
+            {"id": "s3", "kind": "decide", "on": {"answered": None}},
+        ]
+    )
 
 
 def _needs(account: _Account, *kinds: Need) -> list[Need]:
@@ -304,12 +311,221 @@ async def for_account(session: AsyncSession) -> list[Starter]:
     return build(await _account(session))
 
 
+# --- one inbound line's "call back missed callers" switch ------------------------------
+#
+# The line page's switch is this account's `missed_call_callback` Follow-up narrowed to the
+# line (`CallEndedTrigger.inbound_line_ids`). It is a Follow-up like any other, listed on
+# Follow-ups with its runs, rather than a second mechanism beside them: its call books a
+# call-back that the call-back tick dials through the dispatch gate, so Do not call,
+# calling hours and the pacing rules apply exactly as they do to every call.
+#
+# No column names the line, so the row is found by its trigger and a double press is
+# serialised by an advisory lock on the line rather than by a unique index.
+
+LineCallBackState = Literal["on", "off", "covered", "cannot"]
+
+_LINE_FOLLOW_UP_SQL: Final = (
+    "SELECT id FROM follow_ups WHERE starter = :starter "
+    "AND trigger->'inbound_line_ids' @> CAST(:line AS jsonb) "
+    "ORDER BY created_at, id LIMIT 1"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class LineCallBack:
+    #: `covered`: a live Follow-up made on Follow-ups already rings this line's missed
+    #: callers back. `cannot`: no agent of the account can place the call.
+    state: LineCallBackState
+    #: The line's own Follow-up, once one was made.
+    follow_up_id: UUID | None
+    covered_by: UUID | None = None
+    covered_by_name: str | None = None
+
+
+def line_call_back_definition(
+    *, line_id: UUID, agent_id: UUID
+) -> tuple[d.CallEndedTrigger, list[d.AnyStep], d.Settings]:
+    trigger = d.CallEndedTrigger(
+        kind="call_ended", calls="inbound", outcomes=[MISSED], inbound_line_ids=[line_id]
+    )
+    return trigger, _missed_call_steps(str(agent_id)), d.Settings(goal="answered")
+
+
+async def _line(session: AsyncSession, line_id: UUID) -> tuple[UUID, str]:
+    from apps.api.core.errors import ProblemError
+
+    row = (
+        await session.execute(
+            text(
+                "SELECT agent_id, name FROM inbound_lines WHERE id = :lid AND archived_at IS NULL"
+            ),
+            {"lid": line_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Inbound line")
+    return UUID(str(row[0])), str(row[1])
+
+
+async def _own(session: AsyncSession, line_id: UUID) -> UUID | None:
+    found = (
+        await session.execute(
+            text(_LINE_FOLLOW_UP_SQL),
+            {"starter": MISSED_CALL_STARTER, "line": json.dumps([str(line_id)])},
+        )
+    ).scalar()
+    return UUID(str(found)) if found is not None else None
+
+
+async def line_calling_agent(session: AsyncSession, line_agent_id: UUID) -> UUID | None:
+    """Who rings the line's missed callers back: the line's own voice when it can place
+    calls, else the account's oldest agent that can (the starters' choice)."""
+    from apps.api.agents.dial_through import holder_resolves_sql
+
+    value = (
+        await session.execute(
+            text(
+                "SELECT id FROM agents WHERE deleted_at IS NULL AND archived_at IS NULL "
+                f"AND direction IN ('outbound', 'both') AND {holder_resolves_sql('agents')} "
+                "ORDER BY (id = :aid) DESC, created_at LIMIT 1"
+            ),
+            {"aid": line_agent_id},
+        )
+    ).scalar()
+    return UUID(str(value)) if value is not None else None
+
+
+def _covers(trigger: d.AnyTrigger, *, line_id: UUID, agent_id: UUID) -> bool:
+    """A live trigger that starts on EVERY missed call this line takes. One narrowed by a
+    condition (`only_if`, campaigns) might not, so it is never said to cover the line."""
+    return (
+        isinstance(trigger, d.CallEndedTrigger)
+        and trigger.calls in ("inbound", "both")
+        and (trigger.outcomes is None or MISSED in trigger.outcomes)
+        and trigger.campaign_ids is None
+        and trigger.only_if is None
+        and (trigger.inbound_line_ids is None or line_id in trigger.inbound_line_ids)
+        and (trigger.agent_ids is None or agent_id in trigger.agent_ids)
+    )
+
+
+async def line_call_back(session: AsyncSession, line_id: UUID) -> LineCallBack:
+    """The switch's real state, read from the live Follow-ups rather than remembered."""
+    from apps.api.follow_ups import runner
+
+    agent_id, _name = await _line(session, line_id)
+    own = await _own(session, line_id)
+    covering = [
+        f
+        for f in await runner.live_follow_ups(session, "call_ended")
+        if _covers(f.trigger, line_id=line_id, agent_id=agent_id)
+    ]
+    if own is not None and any(f.id == own for f in covering):
+        return LineCallBack(state="on", follow_up_id=own)
+    if covering:
+        other = covering[0].id
+        name = (
+            await session.execute(
+                text("SELECT name FROM follow_ups WHERE id = :fid"), {"fid": other}
+            )
+        ).scalar()
+        return LineCallBack(
+            state="covered", follow_up_id=own, covered_by=other, covered_by_name=str(name)
+        )
+    if await line_calling_agent(session, agent_id) is None:
+        return LineCallBack(state="cannot", follow_up_id=own)
+    return LineCallBack(state="off", follow_up_id=own)
+
+
+async def set_line_call_back(
+    session: AsyncSession, *, tenant_id: UUID, line_id: UUID, on: bool, user_id: UUID | None
+) -> LineCallBack:
+    """On: make the line's Follow-up, or put the one made before back on, published. Off:
+    turn it off, which also stops the call-backs it booked. A Follow-up covering the whole
+    account is left alone: one line's switch cannot turn the account's off."""
+    from apps.api.core.errors import ProblemError
+    from apps.api.follow_ups import service
+
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"line-missed-call-back:{line_id}"},
+    )
+    agent_id, line_name = await _line(session, line_id)
+    own = await _own(session, line_id)
+    if not on:
+        if own is not None and (await service.get(session, own, lock=True)).status in (
+            "live",
+            "paused",
+        ):
+            await service.turn_off(session, own)
+        return await line_call_back(session, line_id)
+    caller = await line_calling_agent(session, agent_id)
+    if caller is None:
+        raise ProblemError.business_rule(
+            "line_call_back_no_caller",
+            "None of your agents can place calls yet, so nobody can call them back.",
+            remediation="Let an agent place calls, then switch this on.",
+        )
+    if own is None:
+        trigger, steps, settings = line_call_back_definition(line_id=line_id, agent_id=caller)
+        row = await service.create(
+            session,
+            tenant_id=tenant_id,
+            name=" ".join(f"Call back missed calls: {line_name}".split())[:MAX_NAME_CHARS],
+            trigger=trigger,
+            steps=steps,
+            settings=settings,
+            starter=MISSED_CALL_STARTER,
+            user_id=user_id,
+        )
+    else:
+        row = await service.get(session, own, lock=True)
+    if row.has_unpublished_changes:
+        row = await service.publish(
+            session,
+            row.id,
+            tenant_id=tenant_id,
+            expected_updated_at=row.updated_at,
+            user_id=user_id,
+        )
+    if row.status in ("paused", "off"):
+        await service.resume(session, row.id, tenant_id=tenant_id)
+    return await line_call_back(session, line_id)
+
+
+async def default_line_call_back(
+    session: AsyncSession, *, tenant_id: UUID, line_id: UUID, user_id: UUID | None
+) -> bool:
+    """A NEW line starts with its switch on when an agent can place the calls (decided for
+    lines made from release 0.5.99 on; lines made before keep what they had, so no live
+    account starts ringing people back unasked). Inside a savepoint, so a line that cannot
+    have it yet is still made, with the switch off and saying why."""
+    from apps.api.core.errors import ProblemError
+
+    try:
+        async with session.begin_nested():
+            state = await set_line_call_back(
+                session, tenant_id=tenant_id, line_id=line_id, on=True, user_id=user_id
+            )
+    except ProblemError:
+        return False
+    return state.state == "on"
+
+
 __all__ = [
+    "MISSED",
+    "MISSED_CALL_STARTER",
     "NIL",
     "NOT_INTERESTED",
     "DateField",
+    "LineCallBack",
     "Starter",
     "build",
+    "default_line_call_back",
     "for_account",
     "interested_keys",
+    "line_call_back",
+    "line_call_back_definition",
+    "line_calling_agent",
+    "set_line_call_back",
 ]

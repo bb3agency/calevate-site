@@ -13,8 +13,8 @@ line's draft with the campaign's review.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import datetime
-from typing import Annotated
+from datetime import date, datetime
+from typing import Annotated, Literal
 from uuid import UUID
 
 from calevate_shared.call_script import CallScript
@@ -66,7 +66,8 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session
 from apps.api.engine.answering import saved_goes_live_later
-from apps.api.inbound import lines
+from apps.api.follow_ups import starters
+from apps.api.inbound import lines, today
 from apps.api.inbound.publish import put_line_live, route_numbers
 from apps.api.reliability.service import require_idempotency_key
 from apps.workers.engine_outage import engine_unavailable
@@ -78,6 +79,8 @@ Writer = Annotated[Principal, Depends(requires("org:manage"))]
 #: A test call rings a phone, as a campaign's does: the same permissions as its routes.
 Dispatcher = Annotated[Principal, Depends(requires("leads:dispatch"))]
 TestReader = Annotated[Principal, Depends(requires("leads:read"))]
+#: The people a line owes a call are listed with their numbers, as the call log lists them.
+CallsReader = Annotated[Principal, Depends(requires("calls:read"))]
 
 #: Calls listed on a line's page; the call logs hold the rest.
 CALLS_SHOWN = 50
@@ -197,6 +200,49 @@ async def _republish_if_live(tenant_id: UUID, line_id: UUID) -> bool:
 )
 async def list_lines(session: Session, _: Reader) -> InboundLinesOut:
     return InboundLinesOut(lines=[_out(line) for line in await lines.list_lines(session)])
+
+
+class LineTodayOut(_Out):
+    line_id: UUID
+    #: Connected to a conversation.
+    answered: int
+    #: Of the answered, those that ended owing the caller a call (booked or not).
+    call_back: int
+    #: Never connected.
+    missed: int
+    #: People the line still owes a call over the last week (`inbound/today`).
+    waiting: int
+
+
+class InboundTodayOut(_Out):
+    #: The IST day counted.
+    day: date
+    #: Only lines with a call today or someone waiting; any other line's counts are zero.
+    lines: list[LineTodayOut]
+
+
+@router.get(
+    "/today",
+    # Declared before `/{line_id}`, which would otherwise take "today" as an id.
+    response_model=InboundTodayOut,
+    openapi_extra=permission_meta("agents:read"),
+    summary="Each line's calls today (IST): answered, owed a call back, missed",
+)
+async def lines_today(session: Session, _: Reader) -> InboundTodayOut:
+    day, counts = await today.lines_today(session)
+    return InboundTodayOut(
+        day=day,
+        lines=[
+            LineTodayOut(
+                line_id=c.line_id,
+                answered=c.answered,
+                call_back=c.call_back,
+                missed=c.missed,
+                waiting=c.waiting,
+            )
+            for c in counts
+        ],
+    )
 
 
 class NewInboundLineIn(BaseModel):
@@ -759,6 +805,10 @@ async def archive_line(line_id: UUID, request: Request, principal: Writer) -> No
     tenant_id = _tenant(principal)
     async with tenant_session(tenant_id) as session:
         agent_id = (await lines.read_line(session, line_id)).agent_id
+        # Its missed-caller call-back stops with it, and the call-backs it booked.
+        await starters.set_line_call_back(
+            session, tenant_id=tenant_id, line_id=line_id, on=False, user_id=principal.user_id
+        )
         ref = await lines.archive_line(session, line_id)
         if ref:
             from apps.api.kb.service import withdraw_line_knowledge
@@ -779,6 +829,115 @@ async def archive_line(line_id: UUID, request: Request, principal: Writer) -> No
             ip=client_request_ip(request),
             summary={},
         )
+
+
+class OwedCallerOut(_Out):
+    #: Their latest call to the line: Make a call follows it up through the call-back door.
+    call_id: UUID
+    at: datetime
+    reason: Literal["not_answered", "hung_up_early", "asked"]
+    tries: int
+    name: str | None
+    phone_e164: str
+    call_back_at: datetime | None
+    calling: bool
+
+
+class LineCallersOut(_Out):
+    #: The first IST day the list looks at.
+    since: date
+    callers: list[OwedCallerOut]
+
+
+@router.get(
+    "/{line_id}/callers",
+    response_model=LineCallersOut,
+    openapi_extra=permission_meta("calls:read"),
+    summary="The people this line still owes a call: missed, hung up, or asked for one",
+)
+async def line_callers(line_id: UUID, session: Session, _: CallsReader) -> LineCallersOut:
+    await lines.read_line(session, line_id)
+    since, owed = await today.owed(session, line_id)
+    return LineCallersOut(
+        since=since,
+        callers=[
+            OwedCallerOut(
+                call_id=o.call_id,
+                at=o.at,
+                reason=o.reason,
+                tries=o.tries,
+                name=o.name,
+                phone_e164=o.phone_e164,
+                call_back_at=o.call_back_at,
+                calling=o.calling,
+            )
+            for o in owed
+        ],
+    )
+
+
+class LineCallBackOut(_Out):
+    state: Literal["on", "off", "covered", "cannot"]
+    #: The line's own Follow-up, once one was made.
+    follow_up_id: UUID | None
+    #: `covered`: the live Follow-up that already rings this line's missed callers back.
+    covered_by: UUID | None
+    covered_by_name: str | None
+
+
+class LineCallBackIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    on: bool
+
+
+def _call_back_out(state: starters.LineCallBack) -> LineCallBackOut:
+    return LineCallBackOut(
+        state=state.state,
+        follow_up_id=state.follow_up_id,
+        covered_by=state.covered_by,
+        covered_by_name=state.covered_by_name,
+    )
+
+
+@router.get(
+    "/{line_id}/missed-call-back",
+    response_model=LineCallBackOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="Whether this line's missed callers are called back, read from the live Follow-ups",
+)
+async def read_missed_call_back(line_id: UUID, session: Session, _: TestReader) -> LineCallBackOut:
+    return _call_back_out(await starters.line_call_back(session, line_id))
+
+
+@router.put(
+    "/{line_id}/missed-call-back",
+    response_model=LineCallBackOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Switch this line's missed-caller call-back on or off (its own Follow-up)",
+)
+async def set_missed_call_back(
+    line_id: UUID, payload: LineCallBackIn, request: Request, principal: Dispatcher
+) -> LineCallBackOut:
+    tenant_id = _tenant(principal)
+    async with tenant_session(tenant_id) as session:
+        state = await starters.set_line_call_back(
+            session,
+            tenant_id=tenant_id,
+            line_id=line_id,
+            on=payload.on,
+            user_id=principal.user_id,
+        )
+        await write_audit(
+            session,
+            action="inbound_line.missed_call_back_set",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="inbound_line",
+            object_id=str(line_id),
+            ip=client_request_ip(request),
+            summary={"on": payload.on, "state": state.state},
+        )
+    return _call_back_out(state)
 
 
 class LineCallOut(_Out):

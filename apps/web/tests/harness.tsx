@@ -448,6 +448,18 @@ export function stubApi(routes: Routes): ApiCall[] {
         if (scoped === "GET /v1/campaigns/limits") {
           return jsonResponse(DEFAULT_CAMPAIGN_LIMITS);
         }
+        // THE CALL LOG'S RETENTION LINE and THE INBOUND DAY (W4.1, W12.9), answered with the
+        // defaults and a quiet day: the call log, the lines list and every line page read
+        // them. A test about either names the route itself.
+        if (scoped === "GET /v1/calls/kept") {
+          return jsonResponse({ recording_days: 90, transcript_days: 365 });
+        }
+        if (scoped === "GET /v1/inbound-lines/today") {
+          return jsonResponse({ day: "2026-11-28", lines: [] });
+        }
+        if (/^GET \/v1\/inbound-lines\/[^/]+\/missed-call-back$/.test(scoped)) {
+          return jsonResponse({ state: "off", follow_up_id: null, covered_by: null, covered_by_name: null });
+        }
         if (/^GET \/v1\/admin\/tenants\/[^/]+\/business-copy$/.test(scoped)) {
           return jsonResponse(NO_ADMIN_BUSINESS_COPY);
         }

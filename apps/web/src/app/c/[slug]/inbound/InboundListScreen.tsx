@@ -5,8 +5,9 @@
  * business's numbers say when called, in one agent's voice; a draft may have no number yet.
  *
  * One row per line, in the campaigns list's form: the state mark, the name (a link stretched
- * over the row), the voice, the numbers, and an Open action in the right-hand cell. New line
- * asks only for the agent; the server names the line and the owner renames it on its page.
+ * over the row), the voice, today's calls (`LineToday`), the numbers, and the actions in the
+ * right-hand cell: "Call back N" only while someone is waiting, then Open. New line asks only
+ * for the agent; the server names the line and the owner renames it on its page.
  */
 
 import Link from "next/link";
@@ -30,14 +31,17 @@ import {
 import { useAgents } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useCreateInboundLine, useInboundLines, type InboundLine } from "@/lib/api/inboundLines";
+import { todayOf, useInboundToday, type InboundToday } from "@/lib/api/inboundToday";
 import { useClientRealm } from "@/lib/api/session";
 
 import { FROM_LIST } from "../campaigns/jobBack";
+import { CallBackButton, TodayCounts } from "./LineToday";
 import { LineStatusPill, numbersText } from "./lineStatus";
 
 export function InboundListScreen({ slug }: { slug: string }) {
   const { session, href } = useClientRealm();
   const lines = useInboundLines(session);
+  const today = useInboundToday(session, Boolean(lines.data?.length));
   const write = useWriteAccess(session, "org:manage", "set up inbound lines");
   const refusal = write.allowed ? undefined : (write.reason ?? undefined);
   const [adding, setAdding] = useState(false);
@@ -81,7 +85,14 @@ export function InboundListScreen({ slug }: { slug: string }) {
       ) : (
         <ul aria-label="Your inbound lines" className="divide-y divide-line border-y border-line">
           {lines.data.map((line) => (
-            <LineRow key={line.id} line={line} href={href(`/c/${slug}/inbound/${line.id}?${FROM_LIST}`)} />
+            <LineRow
+              key={line.id}
+              slug={slug}
+              line={line}
+              today={today.data}
+              todayFailed={today.isError}
+              href={href(`/c/${slug}/inbound/${line.id}?${FROM_LIST}`)}
+            />
           ))}
         </ul>
       )}
@@ -89,7 +100,20 @@ export function InboundListScreen({ slug }: { slug: string }) {
   );
 }
 
-function LineRow({ line, href }: { line: InboundLine; href: string }) {
+function LineRow({
+  slug,
+  line,
+  today,
+  todayFailed,
+  href,
+}: {
+  slug: string;
+  line: InboundLine;
+  today: InboundToday | undefined;
+  todayFailed: boolean;
+  href: string;
+}) {
+  const counts = todayOf(today, line.id);
   return (
     <li className="relative grid grid-cols-1 gap-x-6 gap-y-2 py-4 transition-colors duration-(--duration-fast) hover:bg-ink/[0.02] motion-reduce:transition-none sm:grid-cols-[minmax(0,1fr)_14rem_auto] sm:items-center">
       <div className="min-w-0 space-y-1">
@@ -101,11 +125,13 @@ function LineRow({ line, href }: { line: InboundLine; href: string }) {
           {line.name}
         </Link>
         <p className="text-meta text-ink-muted [overflow-wrap:anywhere]">Voice: {line.agent_name}</p>
+        <TodayCounts slug={slug} lineId={line.id} day={today?.day} today={counts} failed={todayFailed} />
       </div>
       <p className={`text-meta tabular-nums [overflow-wrap:anywhere] ${line.numbers.length ? "text-ink" : "text-ink-muted"}`}>
         {numbersText(line)}
       </p>
-      <div className="relative z-raised flex sm:min-w-28 sm:justify-end">
+      <div className="relative z-raised flex flex-wrap gap-2 sm:min-w-28 sm:justify-end">
+        <CallBackButton slug={slug} lineId={line.id} waiting={counts?.waiting ?? 0} />
         <Link href={href} className={SECONDARY_BUTTON_SM} aria-label={`Open ${line.name}`}>
           Open
         </Link>

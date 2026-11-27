@@ -470,6 +470,7 @@ export const STATIC_FAMILIES: Record<string, string> = {
   public: "the public status page, read by people with no session to stream to",
   "voice-preview": "a rendered audio sample; it is fetched once when asked for",
   "integration-options": "the fixed list of services an account can connect",
+  "call-retention": "the account's retention periods, set from the admin console, not announced",
   "agent-languages":
     "the languages an account may give an agent; they change with an operator's console switch",
   "campaign-limits":

@@ -10108,6 +10108,23 @@
             ],
             "title": "Campaign Ids"
           },
+          "inbound_line_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inbound Line Ids"
+          },
           "kind": {
             "const": "call_ended",
             "title": "Kind",
@@ -14140,6 +14157,40 @@
           "attestation_sha256"
         ],
         "title": "CallingNumberDeclarationOut",
+        "type": "object"
+      },
+      "CallsKeptOut": {
+        "additionalProperties": false,
+        "description": "How long this account keeps what its calls leave behind, from its own retention\nsettings (`crm/call_retention`); null when the account has no period for it.",
+        "properties": {
+          "recording_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recording Days"
+          },
+          "transcript_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcript Days"
+          }
+        },
+        "required": [
+          "recording_days",
+          "transcript_days"
+        ],
+        "title": "CallsKeptOut",
         "type": "object"
       },
       "CampaignAnswerIn": {
@@ -34870,6 +34921,29 @@
         "title": "InboundLinesOut",
         "type": "object"
       },
+      "InboundTodayOut": {
+        "additionalProperties": false,
+        "properties": {
+          "day": {
+            "format": "date",
+            "title": "Day",
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/LineTodayOut"
+            },
+            "title": "Lines",
+            "type": "array"
+          }
+        },
+        "required": [
+          "day",
+          "lines"
+        ],
+        "title": "InboundTodayOut",
+        "type": "object"
+      },
       "IncidentKindOut": {
         "additionalProperties": false,
         "description": "A problem the healer can open an incident for, in plain words (`healer/wording`).",
@@ -40387,6 +40461,78 @@
         "title": "LifecycleOut",
         "type": "object"
       },
+      "LineCallBackIn": {
+        "additionalProperties": false,
+        "properties": {
+          "on": {
+            "title": "On",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "on"
+        ],
+        "title": "LineCallBackIn",
+        "type": "object"
+      },
+      "LineCallBackOut": {
+        "additionalProperties": false,
+        "properties": {
+          "covered_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Covered By"
+          },
+          "covered_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Covered By Name"
+          },
+          "follow_up_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up Id"
+          },
+          "state": {
+            "enum": [
+              "on",
+              "off",
+              "covered",
+              "cannot"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "follow_up_id",
+          "covered_by",
+          "covered_by_name"
+        ],
+        "title": "LineCallBackOut",
+        "type": "object"
+      },
       "LineCallOut": {
         "additionalProperties": false,
         "properties": {
@@ -40442,6 +40588,29 @@
           "outcome_tag"
         ],
         "title": "LineCallOut",
+        "type": "object"
+      },
+      "LineCallersOut": {
+        "additionalProperties": false,
+        "properties": {
+          "callers": {
+            "items": {
+              "$ref": "#/components/schemas/OwedCallerOut"
+            },
+            "title": "Callers",
+            "type": "array"
+          },
+          "since": {
+            "format": "date",
+            "title": "Since",
+            "type": "string"
+          }
+        },
+        "required": [
+          "since",
+          "callers"
+        ],
+        "title": "LineCallersOut",
         "type": "object"
       },
       "LineCallsOut": {
@@ -40785,6 +40954,41 @@
           "quiet_since"
         ],
         "title": "LineOut",
+        "type": "object"
+      },
+      "LineTodayOut": {
+        "additionalProperties": false,
+        "properties": {
+          "answered": {
+            "title": "Answered",
+            "type": "integer"
+          },
+          "call_back": {
+            "title": "Call Back",
+            "type": "integer"
+          },
+          "line_id": {
+            "format": "uuid",
+            "title": "Line Id",
+            "type": "string"
+          },
+          "missed": {
+            "title": "Missed",
+            "type": "integer"
+          },
+          "waiting": {
+            "title": "Waiting",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "line_id",
+          "answered",
+          "call_back",
+          "missed",
+          "waiting"
+        ],
+        "title": "LineTodayOut",
         "type": "object"
       },
       "LinkIn": {
@@ -45685,6 +45889,77 @@
           "overview"
         ],
         "title": "OverviewIn",
+        "type": "object"
+      },
+      "OwedCallerOut": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "call_back_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Back At"
+          },
+          "call_id": {
+            "format": "uuid",
+            "title": "Call Id",
+            "type": "string"
+          },
+          "calling": {
+            "title": "Calling",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "phone_e164": {
+            "title": "Phone E164",
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "not_answered",
+              "hung_up_early",
+              "asked"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "tries": {
+            "title": "Tries",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "call_id",
+          "at",
+          "reason",
+          "tries",
+          "name",
+          "phone_e164",
+          "call_back_at",
+          "calling"
+        ],
+        "title": "OwedCallerOut",
         "type": "object"
       },
       "OwnModelEnableIn": {
@@ -91266,6 +91541,34 @@
         "x-calevate-permission": "calls:read_raw"
       }
     },
+    "/v1/calls/kept": {
+      "get": {
+        "operationId": "get_call_retention_v1_calls_kept_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallsKeptOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "How long this account keeps call recordings and transcripts",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
     "/v1/calls/live": {
       "get": {
         "description": "The log asks this every few seconds while it shows a live row: an outbound row says\n`queued` all call, so ringing and connected come from the engine, one read per call.",
@@ -101364,6 +101667,34 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/inbound-lines/today": {
+      "get": {
+        "operationId": "lines_today_v1_inbound_lines_today_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundTodayOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Each line's calls today (IST): answered, owed a call back, missed",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
     "/v1/inbound-lines/{line_id}": {
       "get": {
         "operationId": "read_line_v1_inbound_lines__line_id__get",
@@ -101533,6 +101864,46 @@
           "inbound"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/callers": {
+      "get": {
+        "operationId": "line_callers_v1_inbound_lines__line_id__callers_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineCallersOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The people this line still owes a call: missed, hung up, or asked for one",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "calls:read"
       }
     },
     "/v1/inbound-lines/{line_id}/calls": {
@@ -101937,6 +102308,94 @@
           "agents"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/missed-call-back": {
+      "get": {
+        "operationId": "read_missed_call_back_v1_inbound_lines__line_id__missed_call_back_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineCallBackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Whether this line's missed callers are called back, read from the live Follow-ups",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "leads:read"
+      },
+      "put": {
+        "operationId": "set_missed_call_back_v1_inbound_lines__line_id__missed_call_back_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LineCallBackIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineCallBackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Switch this line's missed-caller call-back on or off (its own Follow-up)",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "leads:dispatch"
       }
     },
     "/v1/inbound-lines/{line_id}/notes": {
