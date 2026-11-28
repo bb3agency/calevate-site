@@ -7,7 +7,7 @@ import type { ReadAheadProps } from "@/lib/readAhead";
 /**
  * WHAT A ROW NEEDS, whichever view is drawing it.
  *
- * The table and the board render the SAME leads with the same controls and the same
+ * The table and the phone list render the SAME leads with the same controls and the same
  * per-row failure slot, so they take the same object rather than fourteen props each.
  * The screen builds it once (`LeadsScreen.tsx`); everything on it is already gated —
  * `maySelect`, `readOnly` and `canCall` are answers from `/v1/me`, not guesses.

@@ -442,6 +442,8 @@ _EMPTY_TOTALS: Mapping[str, int] = {
     # sentence and "we forgot the words" is the fact worth reporting, not the row count.
     "knowledge_gap_quotes": 0,
     "leads": 0,
+    # The team's notes on leads the lead clock emptied (W7.2).
+    "lead_notes": 0,
     "extractions": 0,
     # Delivered webhook bodies (D-23): one object deleted and its `payload_ref` cleared.
     "delivery_bodies": 0,
@@ -1355,6 +1357,15 @@ WHERE id IN (
     AND left(phone_e164, length(:anon)) <> :anon ORDER BY updated_at LIMIT :batch)
 """
 
+# The team's notes on a lead (W7.2) end with the lead: once `_LEAD_SQL` has anonymized it,
+# its notes are deleted. Keyed on the anonymized prefix rather than on `updated_at`, because
+# `_LEAD_SQL` sets `updated_at = now()` on the rows it empties.
+_LEAD_NOTE_SQL = """
+DELETE FROM lead_notes WHERE id IN (
+  SELECT n.id FROM lead_notes n JOIN leads l ON l.id = n.lead_id
+  WHERE left(l.phone_e164, length(:anon)) = :anon ORDER BY n.created_at LIMIT :batch)
+"""
+
 # DERIVED COPY of the transcript that is ALSO the client's CRM — the caller's name,
 # their callback number and every extracted field. On the lead clock, so the client
 # keeps what they bought for as long as their lead policy says, and no longer.
@@ -1934,6 +1945,10 @@ async def _apply_one(
     if category == "lead":
         counts["leads"], deferred = await _sweep_in_batches(
             session, _LEAD_SQL, {"cutoff": cutoff, "anon": ANONYMIZED_PHONE[:9]}
+        )
+        counts["deferred"] += int(deferred)
+        counts["lead_notes"], deferred = await _sweep_in_batches(
+            session, _LEAD_NOTE_SQL, {"anon": ANONYMIZED_PHONE[:9]}
         )
         counts["deferred"] += int(deferred)
         counts["extractions"], deferred = await _sweep_in_batches(
@@ -3089,6 +3104,12 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         await _erase_copilot_actions(
             session, lead_ids=[*{*leads, *linked_leads}], call_ids=list(calls)
         )
+        # What the team wrote about this person (W7.2): free prose that may name them.
+        # By call as well as by lead, for a note filed under one of these calls.
+        await session.execute(
+            text("DELETE FROM lead_notes WHERE lead_id = ANY(:leads) OR call_id = ANY(:calls)"),
+            {"leads": [*{*leads, *linked_leads}], "calls": list(calls)},
+        )
 
         # KEYED ON THE NUMBER, not on `calls` or `leads`, and that is the point. A
         # campaign contact this person is on may have been uploaded and never dialled, so
@@ -3923,6 +3944,8 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # reader to infer it from a count.
         memories = await session.execute(text("DELETE FROM copilot_memories"))
         counts["copilot_memories_erased"] = int(rowcount_of(memories) or 0)
+        # The team's notes on its leads and calls (W7.2): prose a person typed.
+        await session.execute(text("DELETE FROM lead_notes"))
         # AND THE CONVERSATION ITSELF (D-540). Unpaged and unconditional for the line
         # above's reasons, both of which apply unchanged — one statement over one tenant's
         # rows with no object-store round trip, and nothing to match on, because

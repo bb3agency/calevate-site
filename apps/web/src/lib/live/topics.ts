@@ -109,6 +109,10 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "leads",
     "lead-facets",
     "lead-timeline",
+    // The team's notes written from one call (`lead_notes`).
+    "call-notes",
+    // The Find box's people and calls, read from the leads and their calls.
+    "find",
     "lead-views",
     "lead-captured",
     "lead-calling",

@@ -30,7 +30,7 @@ import type { ReadAheadProps } from "@/lib/readAhead";
  * per-row failure slot.
  *
  * Extracted from `LeadsScreen.tsx` (UX-DOCTRINE §6). One subject, and the table and the
- * board share every line of it: they draw the SAME row, so a second copy of any of this
+ * phone list share every line of it: they draw the SAME row, so a second copy of any of this
  * would be the drift `leadRowKit.ts` exists to prevent.
  *
  * Calling a lead goes through the screen's follow-up actions (`followUp`), which keep each
@@ -241,7 +241,7 @@ export function useLeadRowKit({
 
 
   /**
-   * ONE OBJECT FOR A ROW, because the table and the board draw the same row. Built here
+   * ONE OBJECT FOR A ROW, because the table and the phone list draw the same row. Built here
    * because every gate on it (`maySelect`, `readOnly`, `canCall`) is an answer from
    * `/v1/me` that this component already holds — see `leadRowKit.ts`.
    */

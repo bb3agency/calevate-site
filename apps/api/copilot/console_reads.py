@@ -274,9 +274,18 @@ async def _lead_detail(session: AsyncSession, context: ToolContext, args: Mappin
         lines.extend(
             f"- {_date(item.occurred_at)} {item.title}"
             + (f" — {item.detail[:120]}" if item.detail else "")
+            + _note_words(item.note.body if item.note else None, unmasked=unmasked)
             for item in timeline.items
         )
     return _clean("\n".join(lines)) + f"\n[lead_id {lead_id}]"
+
+
+def _note_words(body: str | None, *, unmasked: bool) -> str:
+    """A team note's words once the owner turned Pip on (D-788); before that, only that
+    there is one, like the captured values above."""
+    if body is None:
+        return ""
+    return f": {body[:300]}" if unmasked else " (its words are on the lead's screen)"
 
 
 # --- call_detail -----------------------------------------------------------------------

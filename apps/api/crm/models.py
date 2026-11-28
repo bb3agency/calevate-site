@@ -720,6 +720,51 @@ class LeadEvent(PKMixin, TimestampMixin, Base):
     actor: Mapped[str | None] = mapped_column(Text)
 
 
+#: The longest note a person may leave on a lead: a few sentences for the team, not a file.
+LEAD_NOTE_MAX_CHARS = 2000
+
+
+class LeadNote(PKMixin, TimestampMixin, Base):
+    """A note a person on the team left on a lead, optionally from one of its calls.
+
+    Its own table rather than a `lead_events.payload` string: the note is free prose a
+    person typed, and `lead_events` is exempt from both erasures on the audited fact that
+    no producer writes prose to it (`scripts/check_erasure_coverage.ERASURE_EXEMPT`). The
+    timeline row a note writes carries only this row's id; the words live here, where both
+    erasures and the lead retention clock delete them.
+
+    Edited in place under a version CAS: `lead_events` is not an append-only ledger, and a
+    note corrected because it held a typo or a number that should not be there must stop
+    holding it.
+    """
+
+    __tablename__ = "lead_notes"
+    __table_args__ = (
+        CheckConstraint(
+            f"char_length(body) BETWEEN 1 AND {LEAD_NOTE_MAX_CHARS}", name="body_length"
+        ),
+        CheckConstraint("version >= 1", name="version_positive"),
+        Index("ix_lead_notes_lead_recent", "lead_id", "created_at"),
+        Index("ix_lead_notes_call", "call_id", postgresql_where=text("call_id IS NOT NULL")),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    lead_id: Mapped[UUID] = mapped_column(
+        ForeignKey("leads.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: The call the note was written from, so the call page shows it and the timeline links
+    #: back. NULL for a note written on the lead's own page.
+    call_id: Mapped[UUID | None] = mapped_column(ForeignKey("calls.id", ondelete="RESTRICT"))
+    #: A `users.id`; NULL when an operator wrote it from a view-as session, or the person
+    #: has since been deleted.
+    author_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
+    edited_at: Mapped[datetime | None] = mapped_column()
+
+
 class CallEngineLatency(PKMixin, TimestampMixin, Base):
     """Per-turn STT/LLM/TTS timings our former Pipecat loop reported for one call.
 

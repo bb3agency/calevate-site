@@ -1220,6 +1220,17 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("PUT", "/v1/agents/{agent_id}/script/opening-line", {"opening_line": "Namaskaram"}, {}),
     # D-715: what a lead's calls captured.
     ("GET", "/v1/leads/{lead_id}/captured", {}, {}),
+    # W7.2: the team's notes. The lead is read first, so a neighbour's lead is not found
+    # whatever note id rides beside it.
+    ("POST", "/v1/leads/{lead_id}/notes", {"body": "Call after 6 pm."}, {}),
+    (
+        "PATCH",
+        "/v1/leads/{lead_id}/notes/{note_id}",
+        {"body": "Call after 7 pm.", "expected_version": 1},
+        {},
+    ),
+    ("DELETE", "/v1/leads/{lead_id}/notes/{note_id}", {}, {}),
+    ("GET", "/v1/calls/{call_id}/notes", {}, {}),
     # D-719: facts, teachings, waiting rules, saved tests and the try-chat.
     ("PATCH", "/v1/kb/facts/{fact_id}", {"text": "Open 10 to 6."}, {}),
     ("DELETE", "/v1/kb/facts/{fact_id}", {}, {}),

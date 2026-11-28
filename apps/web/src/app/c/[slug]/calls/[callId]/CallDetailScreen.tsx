@@ -41,6 +41,7 @@ import { CallVerdict } from "./CallVerdict";
 import { CapturedDetails } from "./CapturedDetails";
 import { DisclosureNotice } from "./DisclosureNotice";
 import { CallBackAction } from "./CallBackAction";
+import { CallNotesCard } from "./CallNotesCard";
 import { CardBoundary } from "./CardBoundary";
 import { INSIGHTS_TITLE, InsightsCard } from "./InsightsCard";
 import { KeyMomentsCard } from "./KeyMomentsCard";
@@ -442,6 +443,9 @@ export function CallDetailScreen({
           <DisclosureNotice played={detail.disclosure_played} callId={detail.id} />
           <CardBoundary name="Captured details">
             <CapturedDetails detail={detail} />
+          </CardBoundary>
+          <CardBoundary name="Team notes">
+            <CallNotesCard session={session} callId={callId} leadId={detail.lead_id} />
           </CardBoundary>
         </div>
 

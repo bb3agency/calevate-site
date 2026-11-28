@@ -1266,6 +1266,21 @@ class CallSavedViewListOut(Strict):
     items: list[CallSavedViewOut]
 
 
+class TimelineNoteOut(Strict):
+    """The words of a note a person left, on the timeline row that records it (W7.2).
+
+    The person's own text for their own team, shown in full on their own console the way
+    the lead's name is. `author_user_id` is what lets the screen offer Edit to its writer.
+    """
+
+    id: UUID
+    body: str
+    #: The CAS token an edit sends back as `expected_version`.
+    version: int
+    author_user_id: UUID | None = None
+    edited_at: datetime | None = None
+
+
 class LeadTimelineEventOut(Strict):
     """One line of a lead's history, PROJECTED — never `lead_events.payload` itself.
 
@@ -1314,6 +1329,91 @@ class LeadTimelineEventOut(Strict):
     #: one. Empty for every other event and for a call with none. Required on the wire so
     #: the generated type is not optional.
     moments: list[CallMomentOut]
+    #: A person's note: its words, read from `lead_notes`. None for every other row, and
+    #: for a note since removed (the row's title then says so).
+    note: TimelineNoteOut | None = None
+
+
+#: A note's words: trimmed, never empty, at most `crm.models.LEAD_NOTE_MAX_CHARS`.
+NoteBody = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+
+
+class LeadNoteIn(Strict):
+    body: NoteBody
+    #: The call the note is written from, which must be one of this lead's calls.
+    call_id: UUID | None = None
+
+
+class LeadNoteEditIn(Strict):
+    body: NoteBody
+    #: The `version` the editor read; a note changed since is refused with 409.
+    expected_version: int = Field(ge=1)
+
+
+class LeadNoteOut(Strict):
+    id: UUID
+    lead_id: UUID
+    call_id: UUID | None = None
+    author_user_id: UUID | None = None
+    #: The writer's name while they are on this account; None for an operator or a person
+    #: who has left.
+    author_name: str | None = None
+    body: str
+    version: int
+    created_at: datetime
+    edited_at: datetime | None = None
+
+
+class CallNotesOut(Strict):
+    """The notes written from one call, oldest first; `total` is all of them."""
+
+    items: list[LeadNoteOut]
+    total: int
+    limit: int
+
+
+class FindIn(Strict):
+    """The console's Find box. A POST body, because the term can be a phone number."""
+
+    q: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
+    #: How many people, calls and screens each.
+    limit: int = Field(default=8, ge=1, le=20)
+
+
+class FindPersonOut(Strict):
+    lead_id: UUID
+    name: str | None = None
+    #: The last four digits only; the full number is on the person's own page.
+    phone_last4: str
+    status: LeadStatus
+
+
+class FindCallOut(Strict):
+    call_id: UUID
+    lead_id: UUID
+    name: str | None = None
+    phone_last4: str
+    direction: str
+    at: datetime
+    outcome_tag: CallOutcome | None = None
+    business_outcome_label: str | None = None
+    headline: str | None = None
+
+
+class FindScreenOut(Strict):
+    #: The route template, `{slug}` unfilled, as `copilot/screens.py` and `clientNav.ts`
+    #: spell it.
+    route: str
+    name: str
+    group: str | None = None
+
+
+class FindOut(Strict):
+    people: list[FindPersonOut]
+    calls: list[FindCallOut]
+    screens: list[FindScreenOut]
+    #: False for a role that may not read calls; the screen then says nothing about calls.
+    calls_shown: bool
 
 
 class LeadTimelineOut(Strict):
@@ -1800,6 +1900,7 @@ __all__ = [
     "CallDetailOut",
     "CallLeadIn",
     "CallLeadOut",
+    "CallNotesOut",
     "CallSavedViewIn",
     "CallSavedViewListOut",
     "CallSavedViewOut",
@@ -1813,11 +1914,19 @@ __all__ = [
     "DashboardDayOut",
     "DashboardOut",
     "ExportDownloadIn",
+    "FindCallOut",
+    "FindIn",
+    "FindOut",
+    "FindPersonOut",
+    "FindScreenOut",
     "LeadColumnOut",
     "LeadFacetOut",
     "LeadFacetValueOut",
     "LeadFacetsOut",
     "LeadListOut",
+    "LeadNoteEditIn",
+    "LeadNoteIn",
+    "LeadNoteOut",
     "LeadOut",
     "LeadStatus",
     "LeadTimelineEventOut",
@@ -1832,6 +1941,7 @@ __all__ = [
     "SavedViewListOut",
     "SavedViewOut",
     "SavedViewUpdateIn",
+    "TimelineNoteOut",
     "TranscriptTurnOut",
     "UsagePanelOut",
     "UsageTrialOut",

@@ -328,6 +328,10 @@ async def test_the_registry_accepts_a_route_that_declares_and_enforces_the_same_
 #: beside the path and `test_every_read_shaped_as_a_post_still_names_a_real_route`
 #: requires every entry to still name a live mutating-method route.
 READS_SHAPED_AS_POSTS: dict[str, str] = {
+    "/v1/find": (
+        "the console's Find box (W7.4): looks up people, calls and screens and writes "
+        "nothing; a POST because the term can be a phone number"
+    ),
     "/v1/dnc/check": (
         "'Is this number suppressed?' — it writes nothing, and the number travels in "
         "the body because a query string lands in access logs, referrers and history"

@@ -37,7 +37,8 @@ from apps.api.core.rbac import permission_meta, role_has
 from apps.api.core.schemas import MAX_OFFSET
 from apps.api.core.stepup import ActionCode, ClientActionCode, client_confirmation
 from apps.api.crm import columns as lead_column_registry
-from apps.api.crm import export_tickets, lead_search, lens, saved_views, service, translation
+from apps.api.crm import export_tickets, lead_search, lens, notes, saved_views, service, translation
+from apps.api.crm import find as find_module
 from apps.api.crm.attention import attention_queue
 from apps.api.crm.call_retention import call_retention
 from apps.api.crm.captured import (
@@ -62,6 +63,7 @@ from apps.api.crm.schemas import (
     CallLeadIn,
     CallLeadOut,
     CallLensIn,
+    CallNotesOut,
     CallSavedViewIn,
     CallSavedViewListOut,
     CallSavedViewOut,
@@ -71,6 +73,11 @@ from apps.api.crm.schemas import (
     CapturedFieldsOut,
     DashboardOut,
     ExportDownloadIn,
+    FindCallOut,
+    FindIn,
+    FindOut,
+    FindPersonOut,
+    FindScreenOut,
     FollowUpFilter,
     LeadBulkFailureOut,
     LeadBulkIn,
@@ -81,6 +88,9 @@ from apps.api.crm.schemas import (
     LeadFacetValueOut,
     LeadLensIn,
     LeadListOut,
+    LeadNoteEditIn,
+    LeadNoteIn,
+    LeadNoteOut,
     LeadOut,
     LeadSearchIn,
     LeadTimelineOut,
@@ -1623,6 +1633,159 @@ async def lead_timeline(
     short page instead of into a bad request.
     """
     return await service.lead_timeline(session, lead_id, limit=limit, offset=offset)
+
+
+def _note_out(note: notes.Note) -> LeadNoteOut:
+    return LeadNoteOut(
+        id=note.id,
+        lead_id=note.lead_id,
+        call_id=note.call_id,
+        author_user_id=note.author_user_id,
+        author_name=note.author_name,
+        body=note.body,
+        version=note.version,
+        created_at=note.created_at,
+        edited_at=note.edited_at,
+    )
+
+
+@router.post(
+    "/leads/{lead_id}/notes",
+    response_model=LeadNoteOut,
+    status_code=201,
+    openapi_extra=permission_meta("leads:write"),
+    summary="Leave a note for the team on a lead, or on one of its calls",
+)
+async def add_lead_note(
+    lead_id: UUID,
+    payload: LeadNoteIn,
+    session: Session,
+    principal: Principal = Depends(requires("leads:write")),
+) -> LeadNoteOut:
+    """The words go to `lead_notes`; the lead's history gets a row naming the note's id."""
+    note = await notes.add_note(
+        session,
+        tenant_id=_tenant_of(principal),
+        lead_id=lead_id,
+        body=payload.body,
+        call_id=payload.call_id,
+        author_user_id=principal.client_user_id,
+        actor=str(principal.user_id),
+    )
+    return _note_out(note)
+
+
+@router.patch(
+    "/leads/{lead_id}/notes/{note_id}",
+    response_model=LeadNoteOut,
+    openapi_extra=permission_meta("leads:write"),
+    summary="Change a note's words: its writer or the owner, and only if nobody else has",
+)
+async def edit_lead_note(
+    lead_id: UUID,
+    note_id: UUID,
+    payload: LeadNoteEditIn,
+    session: Session,
+    principal: Principal = Depends(requires("leads:write")),
+) -> LeadNoteOut:
+    note = await notes.edit_note(
+        session,
+        lead_id=lead_id,
+        note_id=note_id,
+        body=payload.body,
+        expected_version=payload.expected_version,
+        editor=principal.client_user_id,
+        is_owner=principal.role == "owner",
+    )
+    return _note_out(note)
+
+
+@router.delete(
+    "/leads/{lead_id}/notes/{note_id}",
+    status_code=204,
+    response_class=Response,
+    openapi_extra=permission_meta("leads:write"),
+    summary="Remove a note: its writer or the owner",
+)
+async def remove_lead_note(
+    lead_id: UUID,
+    note_id: UUID,
+    session: Session,
+    principal: Principal = Depends(requires("leads:write")),
+) -> Response:
+    await notes.remove_note(
+        session,
+        lead_id=lead_id,
+        note_id=note_id,
+        editor=principal.client_user_id,
+        is_owner=principal.role == "owner",
+    )
+    return Response(status_code=204)
+
+
+@router.get(
+    "/calls/{call_id}/notes",
+    response_model=CallNotesOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="The notes the team wrote from this call, oldest first",
+)
+async def get_call_notes(
+    call_id: UUID,
+    session: Session,
+    limit: int = Query(notes.MAX_CALL_NOTES, ge=1, le=notes.MAX_CALL_NOTES),
+    _: Principal = Depends(requires("leads:read")),
+) -> CallNotesOut:
+    found, total = await notes.call_notes(session, call_id, limit=limit)
+    return CallNotesOut(items=[_note_out(n) for n in found], total=total, limit=limit)
+
+
+@router.post(
+    "/find",
+    response_model=FindOut,
+    # A POST that writes nothing, because the term can be a phone number (hard rule 6),
+    # the same exemption `/v1/leads/search` holds.
+    openapi_extra=permission_meta("leads:read"),
+    summary="Find a person, one of their calls, or a screen, from one search box",
+)
+async def find(
+    payload: FindIn,
+    session: Session,
+    principal: Principal = Depends(requires("leads:read")),
+) -> FindOut:
+    """People by name, last digits or a Latin spelling of a Telugu name; their latest calls
+    for a role that may read calls; and the screens this role may open."""
+    people = await find_module.find_people(session, payload.q, limit=payload.limit)
+    may_read_calls = principal.role is not None and role_has(principal.role, "calls:read")
+    calls = (
+        await find_module.calls_of(session, [p.lead_id for p in people], limit=payload.limit)
+        if may_read_calls
+        else []
+    )
+    screens = find_module.find_screens(payload.q, role=principal.role, limit=payload.limit)
+    return FindOut(
+        people=[
+            FindPersonOut(
+                lead_id=p.lead_id, name=p.name, phone_last4=p.phone_last4, status=p.status
+            )
+            for p in people
+        ],
+        calls=[
+            FindCallOut(
+                call_id=c.call_id,
+                lead_id=c.lead_id,
+                name=c.name,
+                phone_last4=c.phone_last4,
+                direction=c.direction,
+                at=c.at,
+                outcome_tag=c.outcome_tag,
+                business_outcome_label=c.business_outcome_label,
+                headline=c.headline,
+            )
+            for c in calls
+        ],
+        screens=[FindScreenOut(route=sc.route, name=sc.name, group=sc.group) for sc in screens],
+        calls_shown=may_read_calls,
+    )
 
 
 @router.post(

@@ -11718,6 +11718,34 @@
         "title": "CallMomentOut",
         "type": "object"
       },
+      "CallNotesOut": {
+        "additionalProperties": false,
+        "description": "The notes written from one call, oldest first; `total` is all of them.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LeadNoteOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit"
+        ],
+        "title": "CallNotesOut",
+        "type": "object"
+      },
       "CallOutcomeIn": {
         "additionalProperties": false,
         "properties": {
@@ -29704,6 +29732,231 @@
         "title": "FilingBoardOut",
         "type": "object"
       },
+      "FindCallOut": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "business_outcome_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Outcome Label"
+          },
+          "call_id": {
+            "format": "uuid",
+            "title": "Call Id",
+            "type": "string"
+          },
+          "direction": {
+            "title": "Direction",
+            "type": "string"
+          },
+          "headline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headline"
+          },
+          "lead_id": {
+            "format": "uuid",
+            "title": "Lead Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "outcome_tag": {
+            "anyOf": [
+              {
+                "enum": [
+                  "call_back_booked",
+                  "needs_you",
+                  "answered",
+                  "transferred",
+                  "hung_up_early",
+                  "missed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome Tag"
+          },
+          "phone_last4": {
+            "title": "Phone Last4",
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_id",
+          "lead_id",
+          "phone_last4",
+          "direction",
+          "at"
+        ],
+        "title": "FindCallOut",
+        "type": "object"
+      },
+      "FindIn": {
+        "additionalProperties": false,
+        "description": "The console's Find box. A POST body, because the term can be a phone number.",
+        "properties": {
+          "limit": {
+            "default": 8,
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "q": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Q",
+            "type": "string"
+          }
+        },
+        "required": [
+          "q"
+        ],
+        "title": "FindIn",
+        "type": "object"
+      },
+      "FindOut": {
+        "additionalProperties": false,
+        "properties": {
+          "calls": {
+            "items": {
+              "$ref": "#/components/schemas/FindCallOut"
+            },
+            "title": "Calls",
+            "type": "array"
+          },
+          "calls_shown": {
+            "title": "Calls Shown",
+            "type": "boolean"
+          },
+          "people": {
+            "items": {
+              "$ref": "#/components/schemas/FindPersonOut"
+            },
+            "title": "People",
+            "type": "array"
+          },
+          "screens": {
+            "items": {
+              "$ref": "#/components/schemas/FindScreenOut"
+            },
+            "title": "Screens",
+            "type": "array"
+          }
+        },
+        "required": [
+          "people",
+          "calls",
+          "screens",
+          "calls_shown"
+        ],
+        "title": "FindOut",
+        "type": "object"
+      },
+      "FindPersonOut": {
+        "additionalProperties": false,
+        "properties": {
+          "lead_id": {
+            "format": "uuid",
+            "title": "Lead Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "phone_last4": {
+            "title": "Phone Last4",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "new",
+              "contacted",
+              "interested",
+              "hot",
+              "won",
+              "lost"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lead_id",
+          "phone_last4",
+          "status"
+        ],
+        "title": "FindPersonOut",
+        "type": "object"
+      },
+      "FindScreenOut": {
+        "additionalProperties": false,
+        "properties": {
+          "group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "route": {
+            "title": "Route",
+            "type": "string"
+          }
+        },
+        "required": [
+          "route",
+          "name"
+        ],
+        "title": "FindScreenOut",
+        "type": "object"
+      },
       "FindingOut": {
         "additionalProperties": false,
         "properties": {
@@ -39219,6 +39472,140 @@
         "title": "LeadListOut",
         "type": "object"
       },
+      "LeadNoteEditIn": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "body",
+          "expected_version"
+        ],
+        "title": "LeadNoteEditIn",
+        "type": "object"
+      },
+      "LeadNoteIn": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          },
+          "call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Id"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "title": "LeadNoteIn",
+        "type": "object"
+      },
+      "LeadNoteOut": {
+        "additionalProperties": false,
+        "properties": {
+          "author_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author Name"
+          },
+          "author_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author User Id"
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "edited_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edited At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "lead_id": {
+            "format": "uuid",
+            "title": "Lead Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "lead_id",
+          "body",
+          "version",
+          "created_at"
+        ],
+        "title": "LeadNoteOut",
+        "type": "object"
+      },
       "LeadOut": {
         "additionalProperties": false,
         "properties": {
@@ -40374,6 +40761,16 @@
             },
             "title": "Moments",
             "type": "array"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimelineNoteOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "occurred_at": {
             "format": "date-time",
@@ -65889,6 +66286,56 @@
           "leads"
         ],
         "title": "TimelineDayOut",
+        "type": "object"
+      },
+      "TimelineNoteOut": {
+        "additionalProperties": false,
+        "description": "The words of a note a person left, on the timeline row that records it (W7.2).\n\nThe person's own text for their own team, shown in full on their own console the way\nthe lead's name is. `author_user_id` is what lets the screen offer Edit to its writer.",
+        "properties": {
+          "author_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author User Id"
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "edited_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edited At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "body",
+          "version"
+        ],
+        "title": "TimelineNoteOut",
         "type": "object"
       },
       "TimelineOut": {
@@ -93865,6 +94312,58 @@
         "x-calevate-permission": "leads:write"
       }
     },
+    "/v1/calls/{call_id}/notes": {
+      "get": {
+        "operationId": "get_call_notes_v1_calls__call_id__notes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Call Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallNotesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The notes the team wrote from this call, oldest first",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
     "/v1/calls/{call_id}/recording": {
       "get": {
         "operationId": "get_recording_v1_calls__call_id__recording_get",
@@ -101592,6 +102091,45 @@
           "crm"
         ],
         "x-calevate-permission": "calls:read_raw"
+      }
+    },
+    "/v1/find": {
+      "post": {
+        "description": "People by name, last digits or a Latin spelling of a Telugu name; their latest calls\nfor a role that may read calls; and the screens this role may open.",
+        "operationId": "find_v1_find_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Find a person, one of their calls, or a screen, from one search box",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:read"
       }
     },
     "/v1/first-run": {
@@ -109770,6 +110308,158 @@
           "crm"
         ],
         "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/leads/{lead_id}/notes": {
+      "post": {
+        "description": "The words go to `lead_notes`; the lead's history gets a row naming the note's id.",
+        "operationId": "add_lead_note_v1_leads__lead_id__notes_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lead_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Lead Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadNoteIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadNoteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Leave a note for the team on a lead, or on one of its calls",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:write"
+      }
+    },
+    "/v1/leads/{lead_id}/notes/{note_id}": {
+      "delete": {
+        "operationId": "remove_lead_note_v1_leads__lead_id__notes__note_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lead_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Lead Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "note_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Note Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Remove a note: its writer or the owner",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:write"
+      },
+      "patch": {
+        "operationId": "edit_lead_note_v1_leads__lead_id__notes__note_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lead_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Lead Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "note_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Note Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadNoteEditIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadNoteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Change a note's words: its writer or the owner, and only if nobody else has",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:write"
       }
     },
     "/v1/leads/{lead_id}/timeline": {

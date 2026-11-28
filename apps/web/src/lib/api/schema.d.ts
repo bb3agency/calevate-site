@@ -6997,6 +6997,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/calls/{call_id}/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The notes the team wrote from this call, oldest first */
+        get: operations["get_call_notes_v1_calls__call_id__notes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/calls/{call_id}/recording": {
         parameters: {
             query?: never;
@@ -10217,6 +10234,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/find": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Find a person, one of their calls, or a screen, from one search box
+         * @description People by name, last digits or a Latin spelling of a Telugu name; their latest calls
+         *     for a role that may read calls; and the screens this role may open.
+         */
+        post: operations["find_v1_find_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/first-run": {
         parameters: {
             query?: never;
@@ -13113,6 +13151,44 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/v1/leads/{lead_id}/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Leave a note for the team on a lead, or on one of its calls
+         * @description The words go to `lead_notes`; the lead's history gets a row naming the note's id.
+         */
+        post: operations["add_lead_note_v1_leads__lead_id__notes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/leads/{lead_id}/notes/{note_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a note: its writer or the owner */
+        delete: operations["remove_lead_note_v1_leads__lead_id__notes__note_id__delete"];
+        options?: never;
+        head?: never;
+        /** Change a note's words: its writer or the owner, and only if nobody else has */
+        patch: operations["edit_lead_note_v1_leads__lead_id__notes__note_id__patch"];
         trace?: never;
     };
     "/v1/leads/{lead_id}/timeline": {
@@ -19914,6 +19990,18 @@ export interface components {
             /** Turn Idx */
             turn_idx: number | null;
         };
+        /**
+         * CallNotesOut
+         * @description The notes written from one call, oldest first; `total` is all of them.
+         */
+        CallNotesOut: {
+            /** Items */
+            items: components["schemas"]["LeadNoteOut"][];
+            /** Limit */
+            limit: number;
+            /** Total */
+            total: number;
+        };
         /** CallOutcomeIn */
         CallOutcomeIn: {
             /** Key */
@@ -26658,6 +26746,86 @@ export interface components {
              */
             enforced_from: string;
         };
+        /** FindCallOut */
+        FindCallOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Business Outcome Label */
+            business_outcome_label?: string | null;
+            /**
+             * Call Id
+             * Format: uuid
+             */
+            call_id: string;
+            /** Direction */
+            direction: string;
+            /** Headline */
+            headline?: string | null;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Name */
+            name?: string | null;
+            /** Outcome Tag */
+            outcome_tag?: ("call_back_booked" | "needs_you" | "answered" | "transferred" | "hung_up_early" | "missed") | null;
+            /** Phone Last4 */
+            phone_last4: string;
+        };
+        /**
+         * FindIn
+         * @description The console's Find box. A POST body, because the term can be a phone number.
+         */
+        FindIn: {
+            /**
+             * Limit
+             * @default 8
+             */
+            limit: number;
+            /** Q */
+            q: string;
+        };
+        /** FindOut */
+        FindOut: {
+            /** Calls */
+            calls: components["schemas"]["FindCallOut"][];
+            /** Calls Shown */
+            calls_shown: boolean;
+            /** People */
+            people: components["schemas"]["FindPersonOut"][];
+            /** Screens */
+            screens: components["schemas"]["FindScreenOut"][];
+        };
+        /** FindPersonOut */
+        FindPersonOut: {
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Name */
+            name?: string | null;
+            /** Phone Last4 */
+            phone_last4: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "new" | "contacted" | "interested" | "hot" | "won" | "lost";
+        };
+        /** FindScreenOut */
+        FindScreenOut: {
+            /** Group */
+            group?: string | null;
+            /** Name */
+            name: string;
+            /** Route */
+            route: string;
+        };
         /** FindingOut */
         FindingOut: {
             /**
@@ -30041,6 +30209,50 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** LeadNoteEditIn */
+        LeadNoteEditIn: {
+            /** Body */
+            body: string;
+            /** Expected Version */
+            expected_version: number;
+        };
+        /** LeadNoteIn */
+        LeadNoteIn: {
+            /** Body */
+            body: string;
+            /** Call Id */
+            call_id?: string | null;
+        };
+        /** LeadNoteOut */
+        LeadNoteOut: {
+            /** Author Name */
+            author_name?: string | null;
+            /** Author User Id */
+            author_user_id?: string | null;
+            /** Body */
+            body: string;
+            /** Call Id */
+            call_id?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Edited At */
+            edited_at?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Version */
+            version: number;
+        };
         /** LeadOut */
         LeadOut: {
             /** Assigned To */
@@ -30451,6 +30663,7 @@ export interface components {
             id: string;
             /** Moments */
             moments: components["schemas"]["CallMomentOut"][];
+            note?: components["schemas"]["TimelineNoteOut"] | null;
             /**
              * Occurred At
              * Format: date-time
@@ -39912,6 +40125,28 @@ export interface components {
             ist_date: string;
             /** Leads */
             leads: number;
+        };
+        /**
+         * TimelineNoteOut
+         * @description The words of a note a person left, on the timeline row that records it (W7.2).
+         *
+         *     The person's own text for their own team, shown in full on their own console the way
+         *     the lead's name is. `author_user_id` is what lets the screen offer Edit to its writer.
+         */
+        TimelineNoteOut: {
+            /** Author User Id */
+            author_user_id?: string | null;
+            /** Body */
+            body: string;
+            /** Edited At */
+            edited_at?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Version */
+            version: number;
         };
         /**
          * TimelineOut
@@ -55622,6 +55857,39 @@ export interface operations {
             };
         };
     };
+    get_call_notes_v1_calls__call_id__notes_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallNotesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_recording_v1_calls__call_id__recording_get: {
         parameters: {
             query?: never;
@@ -61367,6 +61635,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    find_v1_find_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FindIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FindOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -67282,6 +67583,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CapturedFieldsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    add_lead_note_v1_leads__lead_id__notes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadNoteIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadNoteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    remove_lead_note_v1_leads__lead_id__notes__note_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+                note_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    edit_lead_note_v1_leads__lead_id__notes__note_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+                note_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadNoteEditIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadNoteOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
