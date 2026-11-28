@@ -1,8 +1,12 @@
 "use client";
 
+import { useState } from "react";
+
 import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
 import {
+  FIELD,
+  FIELD_LABEL,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
@@ -16,12 +20,21 @@ import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import type { WriteAccess } from "@/lib/api/hooks";
 import {
+  DELIVERY_STATUSES,
+  EVENT_LABELS,
   eventLabel,
   useDeliveries,
   useDeliveryPayload,
+  useEndpoints,
+  useResumeEndpoint,
+  useSendTestDelivery,
+  type DeliveryStatus,
+  type Endpoint,
+  type OutboundEvent,
   type useResendDelivery,
 } from "@/lib/api/integrations";
-import { lookup } from "@/lib/lookup";
+import { useClientSession } from "@/lib/api/session";
+import { hasKey, lookup } from "@/lib/lookup";
 import { StatusPill } from "@/components/console/statusPill";
 import type { NoticeTone } from "@/components/ui";
 
@@ -51,7 +64,71 @@ const STATUS_TONE: Record<string, NoticeTone> = {
   // Waiting for its next scheduled attempt (the webhook retry schedule, about a day).
   retrying: "warn",
   skipped: "neutral",
+  // Kept while its destination is paused (D-1049); Resume sends it.
+  held: "warn",
 };
+
+const ANY = "";
+
+/** The Result filter's words: what the pill says, as a choice. */
+const STATUS_WORDS: Record<DeliveryStatus, string> = {
+  delivered: "Arrived",
+  retrying: "Trying again",
+  failed: "Did not arrive",
+  skipped: "Not sent",
+  held: "Kept while paused",
+};
+
+/**
+ * Narrow the log, and act on a paused destination (D-1049). The filters go to the server
+ * (`?endpoint_id=&status=&event=`), so a narrowed list is the last 50 of THAT kind, not the
+ * matching few of the last 50. A webhook destination chosen here can be sent a test.
+ */
+function useLogControls(canResend: boolean) {
+  const session = useClientSession();
+  const endpoints = useEndpoints(session);
+  const [endpointId, setEndpointId] = useState(ANY);
+  const [status, setStatus] = useState<DeliveryStatus | typeof ANY>(ANY);
+  const [event, setEvent] = useState<OutboundEvent | typeof ANY>(ANY);
+  const filtered = Boolean(endpointId || status || event);
+  const narrowed = useDeliveries(
+    session,
+    {
+      endpointId: endpointId || undefined,
+      status: status || undefined,
+      event: event || undefined,
+    },
+    { enabled: filtered },
+  );
+  const test = useSendTestDelivery(session);
+  const resume = useResumeEndpoint(session);
+  const all = endpoints.data ?? [];
+  return {
+    all,
+    paused: canResend ? all.filter((e) => e.active && e.paused_at) : [],
+    chosen: all.find((e) => e.id === endpointId),
+    endpointId,
+    setEndpointId,
+    status,
+    setStatus,
+    event,
+    setEvent,
+    filtered,
+    narrowed,
+    test,
+    resume,
+  };
+}
+
+function destinationName(endpoint: Endpoint): string {
+  if (endpoint.kind === "google_sheets") return "Google Sheet";
+  if (endpoint.kind === "leadsquared") return "LeadSquared";
+  try {
+    return new URL(endpoint.url ?? "").host || "Webhook";
+  } catch {
+    return "Webhook";
+  }
+}
 export function DeliveryLog({
   deliveries,
   payloadAccess,
@@ -75,8 +152,114 @@ export function DeliveryLog({
   canResend: boolean;
   resend: ReturnType<typeof useResendDelivery>;
 }) {
+  const controls = useLogControls(canResend);
+  const shown = controls.filtered ? controls.narrowed : deliveries;
   return (
     <Section title="Recent deliveries" description="What we sent to your destinations, and whether it arrived.">
+      {controls.paused.map((endpoint) => (
+        <div
+          key={endpoint.id}
+          role="status"
+          className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface-muted p-3 text-body"
+        >
+          <span className="text-ink">
+            Paused: {destinationName(endpoint)} failed for three days.
+            <span className="block text-meta text-ink-muted">Nothing is lost. Fix it, then resume.</span>
+          </span>
+          <ActionButton
+            variant="secondary-sm"
+            className="ml-auto"
+            status={
+              controls.resume.isPending && controls.resume.variables === endpoint.id ? "pending" : "idle"
+            }
+            pendingLabel="Resuming…"
+            disabled={controls.resume.isPending && controls.resume.variables !== endpoint.id}
+            onClick={() => controls.resume.mutate(endpoint.id)}
+          >
+            Resume
+          </ActionButton>
+        </div>
+      ))}
+      {controls.resume.error && <ProblemNotice error={controls.resume.error} />}
+      {controls.resume.data?.resumed && (
+        <p role="status" className="mb-3 text-meta text-ink-muted">
+          Resumed. Sending {formatCount(controls.resume.data.replayed)} kept{" "}
+          {controls.resume.data.replayed === 1 ? "delivery" : "deliveries"}, oldest first.
+        </p>
+      )}
+
+      <div className="mb-3 flex flex-wrap items-end gap-2">
+        <label className="min-w-40 flex-1">
+          <span className={FIELD_LABEL}>Destination</span>
+          <select
+            className={FIELD}
+            value={controls.endpointId}
+            onChange={(e) => controls.setEndpointId(e.target.value)}
+          >
+            <option value={ANY}>All</option>
+            {controls.all.map((endpoint) => (
+              <option key={endpoint.id} value={endpoint.id}>
+                {destinationName(endpoint)}
+                {endpoint.active ? "" : " (off)"}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="min-w-32 flex-1">
+          <span className={FIELD_LABEL}>Result</span>
+          <select
+            className={FIELD}
+            value={controls.status}
+            onChange={(e) => {
+              const next = DELIVERY_STATUSES.find((s) => s === e.target.value);
+              controls.setStatus(next ?? ANY);
+            }}
+          >
+            <option value={ANY}>Any</option>
+            {DELIVERY_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {STATUS_WORDS[s]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="min-w-40 flex-1">
+          <span className={FIELD_LABEL}>Event</span>
+          <select
+            className={FIELD}
+            value={controls.event}
+            onChange={(e) => {
+              const next = e.target.value;
+              controls.setEvent(hasKey(EVENT_LABELS, next) ? next : ANY);
+            }}
+          >
+            <option value={ANY}>Any</option>
+            {Object.entries(EVENT_LABELS).map(([name, label]) => (
+              <option key={name} value={name}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {canResend && controls.chosen?.kind === "webhook" && controls.chosen.active && (
+          <ActionButton
+            variant="secondary-sm"
+            status={controls.test.isPending ? "pending" : "idle"}
+            pendingLabel="Sending…"
+            title="Sends one signed delivery with made-up data."
+            onClick={() => controls.chosen && controls.test.mutate(controls.chosen.id)}
+          >
+            Send a test
+          </ActionButton>
+        )}
+      </div>
+      {controls.test.error && <ProblemNotice error={controls.test.error} />}
+      {controls.test.isSuccess && (
+        <p role="status" className="mb-3 text-meta text-ink-muted">
+          Test sent. It shows below in a few seconds.
+        </p>
+      )}
+
       {/* Why the payload column is not here — said ONLY when the answer is ours rather
           than the server's. A staff reader who genuinely lacks `calls:read_raw` gets no
           column and no sentence, which is the deliberate design ("a permanently empty
@@ -90,14 +273,14 @@ export function DeliveryLog({
           `data === undefined`) both refuse here, so the card never falls through to
           "Nothing sent yet" — the exact wrong answer to "did my CRM get it?" — on
           either non-answer. §52, the same shape as the endpoints card above. */}
-      {deliveries.isLoading ? (
+      {shown.isLoading ? (
         <Skeleton rows={3} />
-      ) : deliveries.error || !deliveries.data ? (
+      ) : shown.error || !shown.data ? (
         <ProblemNotice
-          error={deliveries.error ?? new Error("Your recent deliveries could not be loaded.")}
-          onRetry={() => deliveries.refetch()}
+          error={shown.error ?? new Error("Your recent deliveries could not be loaded.")}
+          onRetry={() => shown.refetch()}
         />
-      ) : deliveries.data.length ? (
+      ) : shown.data.length ? (
         <ScrollRegion label="Delivery log" className="scroll-shadow-x">
           {/* Stacked rows below `sm` (the DataTable card pattern): a 500px floor in a 360px
               phone left the result and its resend button off the right edge. */}
@@ -114,12 +297,13 @@ export function DeliveryLog({
             </tr>
           </thead>
           <tbody className={`divide-y divide-line ${CARD.body}`}>
-            {deliveries.data.map((delivery) => (
+            {shown.data.map((delivery) => (
               <tr key={delivery.id} className={`${CARD.row} max-sm:px-0`}>
                 <td className={`py-2 ${CARD.title}`}>
                   <span className="text-meta text-ink">
                     {delivery.event_type ? (eventLabel(delivery.event_type) ?? delivery.event_type) : "—"}
                   </span>
+                  {delivery.is_test && <span className="ml-2 text-xs text-ink-muted">Test</span>}
                 </td>
                 <td data-label="Result" className={`py-2 ${CARD.field}`}>
                   <span className="max-sm:flex max-sm:flex-col max-sm:items-end">

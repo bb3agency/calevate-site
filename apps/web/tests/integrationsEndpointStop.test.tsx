@@ -69,6 +69,8 @@ function endpoint(over: Partial<Endpoint> = {}): Endpoint {
     include_transcript: false,
     include_raw_transcript: false,
     include_raw_phone: false,
+    auto_subscribe_new_events: false,
+    managed_by_api_key: false,
     created_at: "2026-08-01T10:00:00Z",
     ...over,
   };

@@ -159,6 +159,12 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "campaign_notice_no_channel": "attention",
     "campaign_notice_tenant_missing": "attention",
     "campaign_notice_unknown_event": "attention",
+    # The webhook breaker (D-1049): a sweep that missed accounts, a pause nobody was told of,
+    # and the events feed's 30-day sweep falling behind.
+    "webhook_breaker_incomplete": "attention",
+    "endpoint_paused_notice_exhausted": "attention",
+    "endpoint_paused_notice_no_channel": "attention",
+    "integration_events_sweep_incomplete": "attention",
     "copilot_attachments_unavailable": "record",
     "copilot_pdf_unavailable": "record",
     "recording_unavailable": "record",

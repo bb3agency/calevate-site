@@ -42,6 +42,7 @@ from apps.api.agents.service import (
 from apps.api.db.base import uuid7
 from apps.api.engine import get_engine
 from apps.api.healer.health import SHORT_CALL_S
+from apps.api.integrations import events as integration_events
 
 ClientIncidentKind = Literal[
     "agent_unwell",
@@ -172,6 +173,9 @@ async def protect_agent(
             {"iid": incident_id, "aid": agent_id},
         )
     ).all()
+    await integration_events.emit_campaign_status_changed(
+        session, campaign_ids=[UUID(str(r[0])) for r in paused], change="paused"
+    )
     protection = hold if hold in ("paused", "forwarded") else "none"
     await session.execute(
         text(
@@ -220,11 +224,17 @@ async def restore_agent(
                 "UPDATE campaigns SET status = CASE WHEN status = 'paused' "
                 "AND archived_at IS NULL THEN 'running' "
                 "ELSE status END, paused_by_heal_id = NULL, updated_at = now() "
-                "WHERE paused_by_heal_id = :iid AND agent_id = :aid RETURNING status"
+                "WHERE paused_by_heal_id = :iid AND agent_id = :aid RETURNING status, id"
             ),
             {"iid": incident_id, "aid": agent_id},
         )
     ).all()
+    await integration_events.emit_campaign_status_changed(
+        session,
+        campaign_ids=[UUID(str(r[1])) for r in resumed if r[0] == "running"],
+        change="resumed",
+        reason="protection_ended",
+    )
     requeued = 0
     missed = 0
     if since is not None:

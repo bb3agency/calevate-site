@@ -1473,21 +1473,31 @@ async def add_to_dnc(
     neither caller believes — and `add_to_dnc` is the one statement every dial-gate
     reader is documented against.
     """
-    await session.execute(
-        text(
-            "INSERT INTO dnc_list (id, tenant_id, phone_e164, scope, source, added_at, "
-            "created_at) VALUES (gen_random_uuid(), :tid, :phone, 'tenant', :source, now(), "
-            "now()) ON CONFLICT (tenant_id, phone_e164) DO UPDATE "
-            "SET source = EXCLUDED.source "
-            "WHERE dnc_list.source = ANY(:removable) AND EXCLUDED.source <> ALL(:removable)"
-        ),
-        {
-            "tid": tenant_id,
-            "phone": phone_e164,
-            "source": source,
-            "removable": list(DNC_REMOVABLE_SOURCES),
-        },
-    )
+    inserted = (
+        await session.execute(
+            text(
+                "INSERT INTO dnc_list (id, tenant_id, phone_e164, scope, source, added_at, "
+                "created_at) VALUES (gen_random_uuid(), :tid, :phone, 'tenant', :source, now(), "
+                "now()) ON CONFLICT (tenant_id, phone_e164) DO UPDATE "
+                "SET source = EXCLUDED.source "
+                "WHERE dnc_list.source = ANY(:removable) AND EXCLUDED.source <> ALL(:removable) "
+                # `xmax = 0` only on a row this statement inserted, not on one it upgraded.
+                "RETURNING (xmax = 0)"
+            ),
+            {
+                "tid": tenant_id,
+                "phone": phone_e164,
+                "source": source,
+                "removable": list(DNC_REMOVABLE_SOURCES),
+            },
+        )
+    ).scalar()
+    if inserted:
+        # D-1049: the client's CRM hears of a new suppression. Imported here: `integrations`
+        # reaches this module at import time.
+        from apps.api.integrations.events import emit_dnc_added
+
+        await emit_dnc_added(session, tenant_id=tenant_id, phones=[phone_e164], source=source)
     # D-428(b): pull back any dial the vendor is already holding for this number, in this
     # transaction so the recall shares the suppression's fate.
     #

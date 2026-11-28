@@ -50,7 +50,7 @@ export function WebhookForm({
         noValidate
         onSubmit={valid.onSubmit(() => {
           create.mutate(
-            { url, events, ...wireExtras(events, extras) },
+            { url, events, auto_subscribe_new_events: false, ...wireExtras(events, extras) },
             {
               onSuccess: (data) => {
                 onSecret(data.secret);

@@ -121,7 +121,18 @@ EVENT_TYPES: tuple[str, ...] = (
     "call.updated",
     "call.recording_ready",
     "campaign.completed",
+    # The failure-state and compliance events (D-1049); producers in `integrations/events.py`.
+    "call.not_connected",
+    "call.inbound_missed",
+    "campaign.status_changed",
+    "lead.consent_changed",
+    "dnc.added",
 )
+
+#: In an endpoint's `events`, "every event there is now" (D-1049). Expanded when the
+#: endpoint is saved, so an event added later is not sent to a receiver that never saw it,
+#: unless the endpoint also asked for that (`auto_subscribe_new_events`).
+ALL_EVENTS: Final = "*"
 
 #: The one event the recording/transcript opt-ins augment. Named rather than spelled at
 #: the branch so the fan-out and the builder cannot disagree about which event is
@@ -203,7 +214,12 @@ def subscribed_endpoint_sql(alias: str) -> str:
     tables in scope, and an unqualified `events`/`kind` resolving to somebody else's
     column is precisely the silent wrong answer this function exists to stop.
     """
-    return f"{alias}.active = true AND {alias}.kind = ANY(:kinds) AND :event = ANY({alias}.events)"
+    return (
+        f"{alias}.active = true AND {alias}.kind = ANY(:kinds) AND (:event = ANY({alias}.events) "
+        # An endpoint that asked for events added after it was saved (D-1049). A signed
+        # webhook only: a sheet or a LeadSquared destination writes a fixed layout per event.
+        f"OR ({alias}.auto_subscribe_new_events AND {alias}.kind = 'webhook'))"
+    )
 
 
 #: The arq job this module fans out to, promoted from a bare literal (P6.9). A job name
@@ -380,6 +396,8 @@ def build_envelope(
     delivery_id: UUID,
     data: dict[str, Any],
     occurred_at: str | None = None,
+    event_id: UUID | str | None = None,
+    test: bool = False,
 ) -> dict[str, Any]:
     """OUR envelope, stable across event types (D-23).
 
@@ -406,13 +424,21 @@ def build_envelope(
     outbox rows that were already queued when this changed, and for the direct callers
     (tests, the docs' worked example) that have no enqueue moment to name.
     """
-    return {
+    envelope: dict[str, Any] = {
         "id": str(delivery_id),
         "event": event,
         "account_id": str(tenant_id),
         "created_at": occurred_at or datetime.now(UTC).isoformat(),
         "data": data,
     }
+    # The EVENT's id (D-1049): one per event however many endpoints it fans out to, and the
+    # id the events feed serves it under. Absent on an outbox row queued before it existed.
+    if event_id is not None:
+        envelope["event_id"] = str(event_id)
+    # A test delivery says so in the body as well as in the log, so a receiver can drop it.
+    if test:
+        envelope["test"] = True
+    return envelope
 
 
 async def enqueue_event(
@@ -429,6 +455,13 @@ async def enqueue_event(
     is this event for" and the second one is where `include_raw_phone` gets forgotten.
     """
     return await enqueue_events(session, tenant_id=tenant_id, event=event, rows=(data,))
+
+
+#: The events that happen at most once per call, whatever re-runs their producer: the
+#: feed row's id is fixed by the call (`feed.once_event_id`) and a repeat fans out nothing.
+ONCE_PER_CALL_EVENTS: Final[frozenset[str]] = frozenset(
+    {"call.recording_ready", "call.not_connected", "call.inbound_missed"}
+)
 
 
 async def enqueue_events(
@@ -470,6 +503,24 @@ async def enqueue_events(
         # deliveries.
         return 0
 
+    # The events feed's row for each object (D-1049), written whether or not any endpoint
+    # is subscribed: a receiver that pulls has no endpoint. Its id rides on every delivery
+    # of the same event as `event_id`.
+    from apps.api.integrations import feed
+
+    once_keys: list[str | None] = [
+        f"{event}:{data.get('call_id')}"
+        if event in ONCE_PER_CALL_EVENTS and data.get("call_id")
+        else None
+        for data in rows
+    ]
+    event_ids = await feed.record_events(
+        session, tenant_id=tenant_id, event=event, rows=rows, once_keys=once_keys
+    )
+    fresh = [(data, eid) for data, eid in zip(rows, event_ids, strict=True) if eid is not None]
+    if not fresh:
+        return 0
+
     # Every kind we can actually deliver, not just `webhook`: a client who picked
     # Google Sheets subscribed to the same events and gets the same fan-out. The kind
     # is NOT copied into the payload — the worker reads it off the endpoint row, which
@@ -507,7 +558,7 @@ async def enqueue_events(
             # registration; this covers a row written before that check.
             continue
         opted_in = raw_phone_opted_in(mapping)
-        for data in rows:
+        for data, event_id in fresh:
             payload_data = lead_payload(data, include_raw_phone=opted_in)
             if is_call_completed and (inc_transcript or inc_raw_transcript):
                 # Only opted-in endpoints pay for the extra reads and the audit write.
@@ -536,6 +587,7 @@ async def enqueue_events(
                 # happened, and a worker-side read of the clock would make it when we
                 # managed to post it. `build_envelope` carries the argument.
                 "occurred_at": occurred_at,
+                "event_id": str(event_id),
             }
             if is_recording_ready:
                 # At most once per (call, endpoint), decided by the database rather than
@@ -572,7 +624,7 @@ async def load_endpoint(session: AsyncSession, endpoint_id: UUID) -> dict[str, A
             text(
                 "SELECT id, url, secret_ref, mapping, active, kind, include_recording_url, "
                 "CASE WHEN previous_secret_expires_at > now() THEN previous_secret_ref END, "
-                "include_transcript, include_raw_transcript "
+                "include_transcript, include_raw_transcript, paused_at "
                 "FROM outbound_webhooks WHERE id = :id"
             ),
             {"id": endpoint_id},
@@ -595,6 +647,8 @@ async def load_endpoint(session: AsyncSession, endpoint_id: UUID) -> dict[str, A
         "include_transcript": bool(row[8]),
         "include_raw_transcript": bool(row[9]),
         "include_raw_phone": raw_phone_opted_in(row[3]),
+        # Paused by the breaker (D-1049): the worker holds the delivery instead of sending.
+        "paused": row[10] is not None,
     }
 
 
@@ -752,6 +806,41 @@ class CreatedEndpoint:
     secret: str
     host: str
     port: int
+    #: The subscription as stored, `*` expanded.
+    events: tuple[str, ...] = ()
+
+
+def expand_events(
+    events: Sequence[str], *, include_recording_url: bool, auto_subscribe_new_events: bool
+) -> list[str]:
+    """The stored subscription for what a caller asked for (D-1049).
+
+    `*` becomes every event that exists now. `call.recording_ready` is in it only with the
+    recording opt-in, because that event is never sent without it (`enqueue_events`), and a
+    wildcard must not register a subscription that is refused when named.
+    `auto_subscribe_new_events` is accepted only with `*`: "and every event added later" is
+    a widening of "every event", never of a hand-picked list."""
+    wildcard = ALL_EVENTS in events
+    if auto_subscribe_new_events and not wildcard:
+        raise ProblemError(
+            kind="validation",
+            code="auto_subscribe_needs_all_events",
+            title="New events need every event",
+            detail="Receiving events we add later is offered only with every event (`*`).",
+            remediation='Send `events: ["*"]`, or turn off auto_subscribe_new_events.',
+            fields=[
+                {
+                    "field": "auto_subscribe_new_events",
+                    "rule": "requires",
+                    "message": 'events must be ["*"]',
+                }
+            ],
+        )
+    if not wildcard:
+        return list(dict.fromkeys(events))
+    return [
+        event for event in EVENT_TYPES if event != RECORDING_READY_EVENT or include_recording_url
+    ]
 
 
 async def create_webhook_endpoint(
@@ -764,16 +853,24 @@ async def create_webhook_endpoint(
     include_transcript: bool,
     include_raw_transcript: bool,
     role: str | None,
+    auto_subscribe_new_events: bool = False,
+    managed_by_key_id: UUID | None = None,
 ) -> CreatedEndpoint:
-    """Register a webhook endpoint: `POST /v1/integrations/endpoints` and Pip's
-    `crm_endpoint_create`. The destination is vetted before the row exists and again on
-    every delivery (`deliver`), because the tenant controls that name's DNS."""
+    """Register a webhook endpoint: `POST /v1/integrations/endpoints`, Pip's
+    `crm_endpoint_create` and a key's `/api/v1` create (`integrations/machine.py`). The
+    destination is vetted before the row exists and again on every delivery (`deliver`),
+    because the tenant controls that name's DNS."""
     assert_raw_transcript_opt_in(
         include_transcript=include_transcript,
         include_raw_transcript=include_raw_transcript,
         role=role,
     )
-    assert_recording_ready_opt_in(events=events, include_recording_url=include_recording_url)
+    stored = expand_events(
+        events,
+        include_recording_url=include_recording_url,
+        auto_subscribe_new_events=auto_subscribe_new_events,
+    )
+    assert_recording_ready_opt_in(events=stored, include_recording_url=include_recording_url)
     destination = await assert_public_http_url(url)
     endpoint_id = uuid7()
     secret = secrets.token_urlsafe(32)
@@ -781,8 +878,9 @@ async def create_webhook_endpoint(
         text(
             "INSERT INTO outbound_webhooks (id, tenant_id, kind, url, secret_ref, events, "
             "include_recording_url, include_transcript, include_raw_transcript, "
+            "auto_subscribe_new_events, managed_by_key_id, "
             "active, created_at, updated_at) VALUES (:id, :tid, 'webhook', :url, :secret, "
-            ":events, :inc_recording, :inc_transcript, :inc_raw_transcript, "
+            ":events, :inc_recording, :inc_transcript, :inc_raw_transcript, :auto, :key, "
             "true, now(), now())"
         ),
         {
@@ -790,14 +888,20 @@ async def create_webhook_endpoint(
             "tid": tenant_id,
             "url": url,
             "secret": secret,
-            "events": list(events),
+            "events": stored,
             "inc_recording": include_recording_url,
             "inc_transcript": include_transcript,
             "inc_raw_transcript": include_raw_transcript,
+            "auto": auto_subscribe_new_events,
+            "key": managed_by_key_id,
         },
     )
     return CreatedEndpoint(
-        id=endpoint_id, secret=secret, host=destination.host, port=destination.port
+        id=endpoint_id,
+        secret=secret,
+        host=destination.host,
+        port=destination.port,
+        events=tuple(stored),
     )
 
 
@@ -812,6 +916,9 @@ class EndpointChoices:
     include_transcript: bool
     include_raw_transcript: bool
     include_raw_phone: bool = False
+    auto_subscribe_new_events: bool = False
+    #: The API key that created it through `/api/v1`, or None (`integrations/machine.py`).
+    managed_by_key_id: UUID | None = None
 
 
 #: The emailed-code verb for switching call content on for an existing endpoint, beside the
@@ -840,7 +947,8 @@ async def read_endpoint_choices(session: AsyncSession, endpoint_id: UUID) -> End
         await session.execute(
             text(
                 "SELECT kind, events, include_recording_url, include_transcript, "
-                "include_raw_transcript, active, mapping FROM outbound_webhooks WHERE id = :id"
+                "include_raw_transcript, active, mapping, auto_subscribe_new_events, "
+                "managed_by_key_id FROM outbound_webhooks WHERE id = :id"
             ),
             {"id": endpoint_id},
         )
@@ -860,6 +968,8 @@ async def read_endpoint_choices(session: AsyncSession, endpoint_id: UUID) -> End
         include_transcript=bool(row[3]),
         include_raw_transcript=bool(row[4]),
         include_raw_phone=raw_phone_opted_in(row[6]),
+        auto_subscribe_new_events=bool(row[7]),
+        managed_by_key_id=UUID(str(row[8])) if row[8] else None,
     )
 
 
@@ -887,6 +997,7 @@ async def update_endpoint(
     include_raw_transcript: bool,
     role: str | None,
     include_raw_phone: bool | None = None,
+    auto_subscribe_new_events: bool | None = None,
 ) -> EndpointChoices:
     """Change which events an ACTIVE endpoint receives and what each carries:
     `PATCH /v1/integrations/endpoints/{id}` and Pip's `crm_endpoint_edit`. Returns what
@@ -909,7 +1020,7 @@ async def update_endpoint(
             detail="An endpoint with no events would never be sent anything.",
             remediation="Tick at least one event, or switch the endpoint off instead.",
         )
-    unknown = sorted(set(events) - set(EVENT_TYPES))
+    unknown = sorted(set(events) - set(EVENT_TYPES) - {ALL_EVENTS})
     if unknown:
         raise ProblemError(
             kind="validation",
@@ -922,6 +1033,21 @@ async def update_endpoint(
         text("SELECT 1 FROM outbound_webhooks WHERE id = :id FOR UPDATE"), {"id": endpoint_id}
     )
     before = await read_endpoint_choices(session, endpoint_id)
+    if auto_subscribe_new_events is None:
+        # Left out: kept while the subscription is still "every event", dropped with it.
+        auto_subscribe_new_events = before.auto_subscribe_new_events and ALL_EVENTS in events
+    if auto_subscribe_new_events and before.kind != WEBHOOK_KIND:
+        raise ProblemError.business_rule(
+            "sheets_endpoint_events_only",
+            "This destination writes a fixed layout for each event, so it cannot take "
+            "events we add later.",
+            remediation="Choose the events for this destination one by one.",
+        )
+    events = expand_events(
+        events,
+        include_recording_url=include_recording_url,
+        auto_subscribe_new_events=auto_subscribe_new_events,
+    )
     extras = include_recording_url or include_transcript or include_raw_transcript
     if before.kind != WEBHOOK_KIND and extras:
         raise ProblemError.business_rule(
@@ -948,13 +1074,14 @@ async def update_endpoint(
         text(
             "UPDATE outbound_webhooks SET events = :events, "
             "include_recording_url = :rec, include_transcript = :tr, "
-            "include_raw_transcript = :raw, "
+            "include_raw_transcript = :raw, auto_subscribe_new_events = :auto, "
             "mapping = CASE WHEN :phone THEN mapping "
             "ELSE mapping - 'include_raw_phone' END, "
             "updated_at = now() WHERE id = :id"
         ),
         {
             "id": endpoint_id,
+            "auto": auto_subscribe_new_events,
             "events": list(events),
             "rec": include_recording_url,
             "tr": include_transcript,
@@ -1302,6 +1429,7 @@ async def record_delivery(
     payload_ref: str | None = None,
     next_attempt_at: datetime | None = None,
     outbox_message_id: UUID | None = None,
+    is_test: bool = False,
 ) -> None:
     """Forensic log, upserted by delivery id so retries update one row (SEC-COMP §5).
 
@@ -1342,6 +1470,7 @@ async def record_delivery(
         "ref": payload_ref,
         "next_at": next_attempt_at,
         "message": outbox_message_id,
+        "test": is_test,
     }
     result = await session.execute(
         text(
@@ -1358,9 +1487,9 @@ async def record_delivery(
             text(
                 "INSERT INTO webhook_deliveries (id, direction, source, event_type, status, "
                 "attempts, endpoint_id, reason, payload_ref, next_attempt_at, "
-                "outbox_message_id, first_at, last_at, created_at) "
+                "outbox_message_id, is_test, first_at, last_at, created_at) "
                 "VALUES (:id, 'out', :src, :event, :status, :attempts, :endpoint, :reason, "
-                ":ref, :next_at, :message, now(), now(), now())"
+                ":ref, :next_at, :message, :test, now(), now(), now())"
             ),
             params,
         )
@@ -1700,6 +1829,38 @@ DEFAULT_SHEET_COLUMNS: dict[str, tuple[str, ...]] = {
         "contacts_reached",
         "completed_at",
     ),
+    # D-1049. The phone column carries the endpoint's own masking choice.
+    "call.not_connected": (
+        "call_id",
+        "lead_id",
+        "phone",
+        "reason",
+        "rule",
+        "opens_at",
+        "campaign_id",
+        "occurred_at",
+    ),
+    "call.inbound_missed": (
+        "call_id",
+        "lead_id",
+        "phone",
+        "inbound_line_id",
+        "status",
+        "call_back",
+        "occurred_at",
+    ),
+    "campaign.status_changed": ("campaign_id", "name", "status", "change", "reason", "changed_at"),
+    "lead.consent_changed": (
+        "lead_id",
+        "phone",
+        "purpose",
+        "status",
+        "source",
+        "call_id",
+        "expires_at",
+        "recorded_at",
+    ),
+    "dnc.added": ("phone", "lead_id", "source", "added_at"),
 }
 
 # Characters that make a spreadsheet treat a cell as an expression. `=` and `@` are
@@ -1814,6 +1975,7 @@ def _disarm(rendered: str) -> str:
 
 
 __all__ = [
+    "ALL_EVENTS",
     "BODY_SUBJECT_FIELDS",
     "CALL_COMPLETED_EVENT",
     "CALL_EVENT_COLUMNS",
@@ -1827,6 +1989,7 @@ __all__ = [
     "EVENT_TYPES",
     "INBOUND_REFUSAL_ALERTS",
     "MAX_ATTEMPTS",
+    "ONCE_PER_CALL_EVENTS",
     "RAW_TRANSCRIPT_INCLUDED_ACTION",
     "RECORDING_LINK_EVENTS",
     "RECORDING_READY_EVENT",
@@ -1847,6 +2010,7 @@ __all__ = [
     "delivery_status",
     "enqueue_event",
     "enqueue_events",
+    "expand_events",
     "lead_payload",
     "load_endpoint",
     "opens_call_content",

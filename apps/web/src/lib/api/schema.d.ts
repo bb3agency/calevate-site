@@ -12324,6 +12324,26 @@ export interface paths {
         patch: operations["update_endpoint_v1_integrations_endpoints__endpoint_id__patch"];
         trace?: never;
     };
+    "/v1/integrations/endpoints/{endpoint_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume a paused endpoint and send what it missed, oldest first
+         * @description An endpoint whose every delivery failed for three days is paused, not deactivated: what it would have been sent is kept (`status: held`). Resume sends every held delivery and every delivery that failed since the failures began, oldest first, each under its own envelope `id`. Idempotent: an endpoint that is not paused answers `resumed: false`. 422 `endpoint_inactive` for a deactivated endpoint.
+         */
+        post: operations["resume_endpoint_v1_integrations_endpoints__endpoint_id__resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/integrations/endpoints/{endpoint_id}/rotate-secret": {
         parameters: {
             query?: never;
@@ -12338,6 +12358,26 @@ export interface paths {
          * @description Replace a webhook endpoint's signing secret in place. The new secret is returned once. Until `previous_secret_expires_at` every delivery carries two `v1` signatures, one per secret, so your receiver keeps verifying while you deploy the new one (`grace_minutes`, default and maximum 1440). Send `grace_minutes: 0` to stop the old secret signing immediately. 409 for a Google Sheets destination or a deactivated endpoint.
          */
         post: operations["rotate_endpoint_secret_v1_integrations_endpoints__endpoint_id__rotate_secret_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/endpoints/{endpoint_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a signed test delivery with made-up data
+         * @description Queue one signed delivery to a webhook endpoint, in the shape of `event` (or the endpoint's first subscription), with made-up data and `"test": true` in the body. It is tried once and shows in `GET /v1/integrations/deliveries` with `is_test: true`. Works while the endpoint is paused, so a fix can be checked before Resume. 422 `endpoint_test_webhook_only` for a Google Sheet or LeadSquared, `endpoint_inactive` for a deactivated endpoint.
+         */
+        post: operations["send_test_delivery_v1_integrations_endpoints__endpoint_id__test_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -24754,8 +24794,13 @@ export interface components {
         };
         /** CreateEndpointIn */
         CreateEndpointIn: {
+            /**
+             * Auto Subscribe New Events
+             * @default false
+             */
+            auto_subscribe_new_events: boolean;
             /** Events */
-            events: ("lead.created" | "lead.updated" | "call.completed" | "call.updated" | "call.recording_ready" | "campaign.completed")[];
+            events: (("lead.created" | "lead.updated" | "call.completed" | "call.updated" | "call.recording_ready" | "campaign.completed" | "call.not_connected" | "call.inbound_missed" | "campaign.status_changed" | "lead.consent_changed" | "dnc.added") | "*")[];
             /**
              * Include Raw Transcript
              * @default false
@@ -24779,6 +24824,11 @@ export interface components {
         };
         /** CreateEndpointOut */
         CreateEndpointOut: {
+            /**
+             * Auto Subscribe New Events
+             * @default false
+             */
+            auto_subscribe_new_events: boolean;
             /** Events */
             events: string[];
             /**
@@ -24865,7 +24915,7 @@ export interface components {
              */
             credential_id: string;
             /** Events */
-            events: ("lead.created" | "lead.updated" | "call.completed" | "call.updated" | "call.recording_ready" | "campaign.completed")[];
+            events: ("lead.created" | "lead.updated" | "call.completed" | "call.updated" | "call.recording_ready" | "campaign.completed" | "call.not_connected" | "call.inbound_missed" | "campaign.status_changed" | "lead.consent_changed" | "dnc.added")[];
             /** Spreadsheet */
             spreadsheet: string;
             /** Worksheet */
@@ -25585,6 +25635,8 @@ export interface components {
         DeliveryOut: {
             /** Attempts */
             attempts: number;
+            /** Endpoint Id */
+            endpoint_id?: string | null;
             /** Event Type */
             event_type: string | null;
             /**
@@ -25597,6 +25649,11 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Is Test
+             * @default false
+             */
+            is_test: boolean;
             /**
              * Last At
              * Format: date-time
@@ -26215,12 +26272,19 @@ export interface components {
             /** Active */
             active: boolean;
             /**
+             * Auto Subscribe New Events
+             * @default false
+             */
+            auto_subscribe_new_events: boolean;
+            /**
              * Created At
              * Format: date-time
              */
             created_at: string;
             /** Events */
             events: string[];
+            /** Failing Since */
+            failing_since?: string | null;
             /**
              * Id
              * Format: uuid
@@ -26236,12 +26300,49 @@ export interface components {
             include_transcript: boolean;
             /** Kind */
             kind: string;
+            /**
+             * Managed By Api Key
+             * @default false
+             */
+            managed_by_api_key: boolean;
+            /** Paused At */
+            paused_at?: string | null;
             /** Previous Secret Expires At */
             previous_secret_expires_at?: string | null;
             /** Secret Fingerprint */
             secret_fingerprint: string | null;
             /** Url */
             url: string | null;
+        };
+        /** EndpointResumeOut */
+        EndpointResumeOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Replayed */
+            replayed: number;
+            /** Resumed */
+            resumed: boolean;
+        };
+        /** EndpointTestIn */
+        EndpointTestIn: {
+            /** Event */
+            event?: ("lead.created" | "lead.updated" | "call.completed" | "call.updated" | "call.recording_ready" | "campaign.completed" | "call.not_connected" | "call.inbound_missed" | "campaign.status_changed" | "lead.consent_changed" | "dnc.added") | null;
+        };
+        /**
+         * EndpointTestOut
+         * @description A test delivery accepted: it shows in the delivery log as a test within seconds.
+         */
+        EndpointTestOut: {
+            /**
+             * Delivery Id
+             * Format: uuid
+             */
+            delivery_id: string;
+            /** Event */
+            event: string;
         };
         /**
          * EngineAgentAllowanceFull
@@ -42619,8 +42720,10 @@ export interface components {
          *     not one of them: pointing lead data somewhere new is a new endpoint, behind its code.
          */
         UpdateEndpointIn: {
+            /** Auto Subscribe New Events */
+            auto_subscribe_new_events?: boolean | null;
             /** Events */
-            events: ("lead.created" | "lead.updated" | "call.completed" | "call.updated" | "call.recording_ready" | "campaign.completed")[];
+            events: (("lead.created" | "lead.updated" | "call.completed" | "call.updated" | "call.recording_ready" | "campaign.completed" | "call.not_connected" | "call.inbound_missed" | "campaign.status_changed" | "lead.consent_changed" | "dnc.added") | "*")[];
             /** Include Raw Phone */
             include_raw_phone?: boolean | null;
             /**
@@ -67135,6 +67238,9 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
+                endpoint_id?: string | null;
+                status?: ("delivered" | "retrying" | "failed" | "skipped" | "held") | null;
+                event?: ("lead.created" | "lead.updated" | "call.completed" | "call.updated" | "call.recording_ready" | "campaign.completed" | "call.not_connected" | "call.inbound_missed" | "campaign.status_changed" | "lead.consent_changed" | "dnc.added") | null;
             };
             header?: never;
             path?: never;
@@ -67426,6 +67532,37 @@ export interface operations {
             };
         };
     };
+    resume_endpoint_v1_integrations_endpoints__endpoint_id__resume_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                endpoint_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EndpointResumeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     rotate_endpoint_secret_v1_integrations_endpoints__endpoint_id__rotate_secret_post: {
         parameters: {
             query?: never;
@@ -67448,6 +67585,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RotateEndpointSecretOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    send_test_delivery_v1_integrations_endpoints__endpoint_id__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                endpoint_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EndpointTestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EndpointTestOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

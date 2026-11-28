@@ -190,6 +190,7 @@ from apps.api.forwarding.testing import (
 from apps.api.ingest.service import normalize_phone
 from apps.api.insights import detection as gap_detection
 from apps.api.insights import service as gap_service
+from apps.api.integrations import events as integration_events
 from apps.api.integrations import service as integrations
 from apps.api.integrations.service import subscribed_endpoint_sql
 from apps.api.ops.model_pricing import attested_tts_prices
@@ -1922,6 +1923,12 @@ async def _run_post_call_stages(
             job=FOLLOW_UP_CALL_ENDED_JOB,
             payload={"tenant_id": str(tenant_id), "call_id": str(call_id)},
             dedupe_key=f"follow-up-call-ended:{call_id}",
+        )
+
+        # STEP 7c — a call that reached nobody tells the CRM so (D-1049): `call.not_connected`
+        # outbound, `call.inbound_missed` inbound. Once per call however often this runs.
+        await integration_events.emit_call_ended_unreached(
+            session, tenant_id=tenant_id, call_id=call_id, lead_id=lead_id
         )
 
         # STEP 8 — outbound CRM sync (D-23). Last, and only for a call that actually

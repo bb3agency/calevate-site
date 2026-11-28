@@ -85,6 +85,7 @@ from apps.api.follow_ups.runner import CallbackRef, LiveFollowUp
 from apps.api.ingest import portals
 from apps.api.ingest.lead_policy import align, hold_lead, load_plan, when_to_call
 from apps.api.ingest.sealed_secret import open_source_secret, seal_source_secret
+from apps.api.integrations import events as integration_events
 from apps.api.integrations import service as integrations
 
 log = get_logger(__name__)
@@ -1193,6 +1194,14 @@ async def _record_dial_consent_granted(
             ),
         },
     )
+    await integration_events.emit_consent_changed(
+        session,
+        tenant_id=tenant_id,
+        phone=phone_e164,
+        purpose="callback",
+        status="granted",
+        source="web_form_optin",
+    )
 
 
 def portal_verdict(
@@ -1251,6 +1260,15 @@ async def _portal_ground(
             "expires": expires,
             "evidence": json.dumps(ground.evidence(lead_source_id=str(config.id))),
         },
+    )
+    await integration_events.emit_consent_changed(
+        session,
+        tenant_id=config.tenant_id,
+        phone=phone_e164,
+        purpose="callback",
+        status="granted",
+        source="portal_enquiry",
+        expires_at=expires,
     )
     return None
 
@@ -1313,6 +1331,14 @@ async def _record_dial_consent_declined(
             "'callback', 'declined', 'web_form_optin', now(), now())"
         ),
         {"id": uuid7(), "tid": tenant_id, "phone": phone_e164},
+    )
+    await integration_events.emit_consent_changed(
+        session,
+        tenant_id=tenant_id,
+        phone=phone_e164,
+        purpose="callback",
+        status="declined",
+        source="web_form_optin",
     )
     # And a dial already handed to the voice platform (a campaign contact claimed this
     # tick) is called off, as `consent_routes.record_call` does for the same refusal:

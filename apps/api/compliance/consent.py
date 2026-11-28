@@ -711,6 +711,20 @@ async def _append_consent_row(
             return None
     else:
         await session.execute(text(columns + values), params)
+    # The client's CRM hears of it in the same transaction (D-1049). Imported here:
+    # `integrations` reaches `compliance` at import time.
+    from apps.api.integrations.events import emit_consent_changed
+
+    await emit_consent_changed(
+        session,
+        tenant_id=tenant_id,
+        phone=phone_e164,
+        purpose=purpose,
+        status=status,
+        source=source,
+        call_id=call_id,
+        expires_at=expires_at,
+    )
     # Ids, a purpose, a status and a source. Never the number (hard rule 6).
     log.info(
         "consent_recorded",

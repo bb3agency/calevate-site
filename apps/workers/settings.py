@@ -401,6 +401,16 @@ from apps.workers.trials import sweep_trials
 from apps.workers.voice_catalogue import REFRESH_MINUTE, refresh_voice_catalogue
 from apps.workers.voice_comparison_key import push_voice_comparison_key
 from apps.workers.wallet_alerts import notify_low_balance
+from apps.workers.webhooks_breaker import (
+    BREAKER_SWEEP_MINUTE,
+    notify_endpoint_paused,
+    pause_failing_endpoints,
+)
+from apps.workers.webhooks_feed import (
+    FEED_SWEEP_HOUR_UTC,
+    FEED_SWEEP_MINUTE,
+    sweep_integration_events,
+)
 from apps.workers.weekly_summary import (
     SUMMARY_HOUR,
     SUMMARY_MINUTE,
@@ -618,6 +628,8 @@ FUNCTIONS: list[Any] = [
         # D-23: the client's CRM hears about leads and calls through the same outbox as
         # every other side effect, so a delivery cannot outlive a rolled-back write.
         deliver_outbound_webhook,
+        # D-1049. The owner's notice that the breaker paused one of their destinations.
+        notify_endpoint_paused,
         # A DPDP erasure is queued rather than run inline: it touches many rows and must
         # survive a request timing out halfway through.
         execute_deletion_request,
@@ -807,6 +819,7 @@ RESULT_WINDOW_S: Final[Mapping[str, int]] = {
     recall_dials_for_dnc.__name__: OUTBOX_RESULT_WINDOW_S,
     notify_account_closed.__name__: OUTBOX_RESULT_WINDOW_S,
     notify_campaign_archived.__name__: OUTBOX_RESULT_WINDOW_S,
+    notify_endpoint_paused.__name__: OUTBOX_RESULT_WINDOW_S,
 }
 
 
@@ -1458,6 +1471,22 @@ CRON_JOBS = [
         traced_job(expire_credit_lots),
         walk=fleet_wide("one tenant_session per organization, then one per due lot"),
         minute={11},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # D-1049. The webhook breaker: a destination whose every delivery failed for three days
+    # is paused and its owner told. Hourly; a doubled tick pauses nothing twice.
+    _cron(
+        traced_job(pause_failing_endpoints),
+        walk=fleet_wide("one tenant_session per organization, one streak read per endpoint"),
+        minute={BREAKER_SWEEP_MINUTE},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # D-1049. The events feed keeps 30 days; older rows go, daily, account by account.
+    _cron(
+        traced_job(sweep_integration_events),
+        walk=fleet_wide("one tenant_session per organization, bounded deletes"),
+        hour={FEED_SWEEP_HOUR_UTC},
+        minute={FEED_SWEEP_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE WEEKLY QA SPOT-CHECK (SURFACES §1): 5% of every client's calls, drawn so the

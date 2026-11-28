@@ -34,6 +34,8 @@ const ENDPOINT: Endpoint = {
   include_transcript: false,
   include_raw_transcript: false,
   include_raw_phone: false,
+  auto_subscribe_new_events: false,
+  managed_by_api_key: false,
   created_at: "2026-10-01T10:00:00Z",
   previous_secret_expires_at: null,
 };
@@ -49,6 +51,7 @@ function delivery(over: Partial<Delivery> = {}): Delivery {
     payload_stored: false,
     next_attempt_at: null,
     resendable: true,
+    is_test: false,
     ...over,
   };
 }

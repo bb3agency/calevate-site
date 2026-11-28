@@ -55,13 +55,19 @@ events lane (W2.4) beside the event rows it owns.
 | `call.recording_ready` | Our copy of a completed call's recording has been stored, usually a few minutes after the hangup and often AFTER `call.completed` (whose `recording_url` is therefore usually absent). Sent only to an endpoint that also opted into `include_recording_url` (§1.7), once per call per endpoint. Not available for a Google Sheet: the link it carries expires within minutes. | Live |
 | `lead.updated`       | A lead's status, name or owner actually changes: an edit in the dashboard (one event per lead per edit, and nothing at all for a re-save that moved no field), or a call that moves the lead's status up (contacted, interested, hot). In the same transaction as the change. | Live |
 | `campaign.completed` | An outbound campaign has nothing left to dial and reaches its terminal `completed` status — in the same transaction as that status write. A campaign that REPEATS does not fire this at the end of each run: it is not finished, it is waiting for its next occurrence. | Live |
+| `call.not_connected` | We could not reach the person. Either an outbound call ended unanswered, busy, at voicemail or failed (`reason` is that status), once per call; or the dial rules would not ring a campaign contact: `reason: "refused"` when the contact is finished with for good (do-not-call, no consent, erased), `reason: "deferred"` with `opens_at` when the contact waits until a stated time (the per-person daily cap, the campaign's recent-call skip). A refusal that clears within minutes (outside calling hours, a spend cap, a pause) is not sent. Never for a test call. | Live |
+| `call.inbound_missed` | A call to one of your numbers never connected (no answer, busy, voicemail, failed). Once per call. `call_back` names the Follow-up that will ring the caller back when one is switched on for that line, else `null`. Never for a test call. | Live |
+| `campaign.status_changed` | A campaign started, paused, resumed, was stopped, completed, or finished one run of a repeating schedule — in the same transaction as the status write. A paused campaign says why: `owner`, `spend_cap`, `out_of_credit`, `complaint_spike`, `maintenance` or `protection` (our safeguard after a run of broken calls). | Live |
+| `lead.consent_changed` | A consent record was written for a number: a call-back, marketing or messaging permission granted, declined or withdrawn (a form opt-in, a portal enquiry, a caller saying "stop calling"). Consent to RECORD a call is not sent: it is written on most calls and says nothing about contacting the person again. | Live |
+| `dnc.added` | A number went onto your account's do-not-call list (your upload, a caller's spoken opt-out, a staff entry). Once per number. | Live |
 
-All six fire. `GET /v1/integrations/events` returns the list you may subscribe to.
+All eleven fire. `GET /v1/integrations/events` returns the list you may subscribe to.
 
 ### 1.2 The envelope
 
-Every delivery is one JSON object with the same five top-level keys, regardless of event
-type:
+Every delivery is one JSON object with the same top-level keys, regardless of event
+type: the five below, `event_id` (see the second point after the example), and `"test":
+true` on a test delivery only (§1.5):
 
 ```json
 {
@@ -83,6 +89,10 @@ type:
   *same* `id`. Deduplicate on `id` and you deduplicate retries — while two genuine
   updates to the same lead keep distinct ids and both get through. Do not deduplicate
   on `data.lead_id`.
+- **`event_id` is the event's id**, the same on every endpoint the event is sent to and
+  the `id` the events feed serves it under (§1.8). Use it when you take the same events
+  by webhook and by the feed, or at two endpoints. Absent only on a delivery queued before
+  28 Nov 2026.
 - **`phone` is masked by default** — the literal string `"[redacted]"`. Receiving the
   raw E.164 number is a per-endpoint opt-in you make explicitly with us; it is recorded
   in your endpoint config, not assumed. You can switch it off yourself (Integrations,
@@ -151,6 +161,28 @@ event that carries no personal data at all** — aggregates only, no per-contact
 which is also why it is the one event whose delivered body we do not retain a copy of:
 there is no data subject in it for a deletion request to find. `contacts_reached` counts
 the contacts a call actually connected to, not the contacts dialled.
+
+The five failure-state and compliance events carry a `phone` masked like a lead's
+(`"[redacted]"` unless your endpoint receives full numbers). Their `data`:
+
+- `call.not_connected`: `call_id` (null for a dial that was refused before it rang),
+  `lead_id` (may be null), `phone`, `campaign_id` (may be null), `reason` (`no_answer`,
+  `busy`, `voicemail`, `failed`, `refused` or `deferred`), `rule` (the dial rule behind a
+  `refused` or `deferred`, e.g. `dnc`, `no_consent`, `person_contact_pacing`,
+  `recently_called`; else null), `opens_at` (when a `deferred` person can be rung; else
+  null) and `occurred_at`.
+- `call.inbound_missed`: `call_id`, `lead_id` (may be null), `phone` (the caller),
+  `inbound_line_id`, `status` (the call's), `call_back` (`{"follow_up_id": …}` or null) and
+  `occurred_at`.
+- `campaign.status_changed`: `campaign_id`, `name` (the campaign's), `status` (as it now
+  stands), `change` (`started`, `paused`, `resumed`, `stopped`, `completed` or
+  `run_finished`), `reason` and `changed_at`. No personal data, so no copy of its body is
+  kept, as for `campaign.completed`.
+- `lead.consent_changed`: `lead_id` (the most recent lead with that number, or null),
+  `phone`, `purpose` (`callback`, `marketing` or `messaging`), `status` (`granted`,
+  `declined` or `withdrawn`), `source`, `call_id` (may be null), `expires_at` (may be null)
+  and `recorded_at`.
+- `dnc.added`: `phone`, `lead_id` (may be null), `source` and `added_at`.
 
 An optional per-endpoint field mapping can rename our `data` keys to yours (e.g.
 `lead_id` → `LeadRef`). When a mapping is configured, **only mapped fields are sent**,
@@ -241,6 +273,26 @@ Four rules that matter:
   reach my CRM?" needs no support ticket.
 - An event queued for an endpoint you deactivated before it was sent is recorded as
   `skipped`, not retried.
+- **Paused after three days of failures, nothing dropped.** When every delivery to an
+  endpoint since it last accepted one has failed, the first of those failures is at least
+  72 hours old, the latest within the last day and they span at least 12 hours, we pause
+  the endpoint (`paused_at` and `failing_since` on `GET /v1/integrations/endpoints`). It is
+  not deactivated: new deliveries for it are kept with status `held`. We email the
+  account's owners and billing address once per pause and post a notice to the bell.
+  `POST /v1/integrations/endpoints/{id}/resume` (or Resume on the Integrations screen)
+  sends every held delivery, and every delivery that failed since `failing_since`, oldest
+  first, each under its own envelope `id`; it answers `{"resumed", "replayed"}` and is
+  idempotent. Test deliveries never count toward a pause.
+- **Test delivery.** `POST /v1/integrations/endpoints/{id}/test` with an optional
+  `{"event": "lead.created"}` (default: the endpoint's first subscription) answers `202`
+  with a `delivery_id` and sends one signed delivery in that event's `data` shape with
+  made-up values and `"test": true` in the envelope. It is tried once, never retried and
+  never resendable, and it shows in the delivery log with `is_test: true`. It works while
+  the endpoint is paused, so you can check a fix before Resume. Webhook endpoints only
+  (`422 endpoint_test_webhook_only` for a Google Sheet or LeadSquared).
+- **Filters.** `GET /v1/integrations/deliveries?endpoint_id=&status=&event=` narrows the
+  log to one endpoint, one status (`delivered`, `retrying`, `failed`, `skipped`, `held`) or
+  one event; each row also names its `endpoint_id`.
 
 ### 1.6 Managing endpoints and rotating a secret
 
@@ -260,6 +312,16 @@ Four rules that matter:
   slug>"`, and the create is sent again with `X-Confirm-Action` naming the same action.
   Without it the answer is `reauthentication_required`, whose `remediation` names the
   action.
+- **`"events": ["*"]` is every event that exists when you save the endpoint**, expanded
+  to the list then (without `call.recording_ready` unless `include_recording_url` is on).
+  An event we add later is not sent to it, because your receiver has never seen its shape,
+  unless you also send `"auto_subscribe_new_events": true`, which is accepted only with
+  `["*"]` and only for a webhook. On a `PATCH`, leaving it out keeps it while `events`
+  stays `["*"]`.
+- **An API key with the `webhooks:manage` scope** can create endpoints through `/api/v1`
+  (`managed_by_api_key: true` on the list). Such an endpoint carries no recording link and
+  no transcript and cannot subscribe to `call.recording_ready`: switching any of those on is
+  a person's act, with the emailed code. A key can remove only an endpoint a key created.
 - `PATCH /v1/integrations/endpoints/{id}` replaces an active endpoint's `events` and its
   three opt-ins. The address cannot be changed: a new destination is a new endpoint.
   Changing events or switching an opt-in off needs no code; switching the recording link
@@ -341,6 +403,27 @@ Three rules govern them:
   we keep a copy of what we sent (§1.5 / the payload view), still behind `calls:read_raw`
   and still audited on read. Opting in widens what your endpoint receives, not who may
   read the forensic copy.
+
+### 1.8 The events feed: pull instead of push
+
+If your system cannot accept a webhook (it sits behind a firewall), read the same events
+by pulling them with an API key holding `events:read`, under `/api/v1`:
+
+- `GET /api/v1/events?after=<event_id>&type=<event>&limit=` — events after a known one,
+  oldest first, up to 100 per page; `next_after` in the answer is the `after` for the next
+  page. Without `after`, from the oldest event still kept.
+- `GET /api/v1/events/next?type=&limit=` — the events after this key's own cursor.
+  Reading does not move the cursor; `POST /api/v1/events/next/ack` with
+  `{"event_id": …}` moves it to that event, forward only (an older ack changes nothing).
+  Acknowledge what you processed and you read every event once, even across restarts.
+- Each item is the webhook envelope (§1.2) with `id` equal to `event_id`, so an event you
+  also received by webhook has the same `event_id` in both. The phone is masked unless the
+  key may read full numbers; transcripts and recording links are never in the feed.
+- Events are kept **30 days**, and a person's are removed by an erasure request. An
+  unknown `after` or `ack` (older than 30 days, erased, or not your account's) is `404
+  feed_event_unknown`.
+- An event appears once every transaction that began before it has finished, normally
+  within a second. That ordering is what lets a cursor never skip an event.
 
 ---
 
