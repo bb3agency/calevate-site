@@ -38,6 +38,7 @@ import { AddToCampaign } from "./AddToCampaign";
 import { StartFollowUp } from "./StartFollowUp";
 import { BulkActionBar, EMPTY_SELECTION, type BulkSelection } from "./BulkActionBar";
 import { DialerPicker } from "./DialerPicker";
+import { LeadDesk } from "./LeadDesk";
 import { LeadTable } from "./LeadTable";
 import { LeadsFooter } from "./LeadsFooter";
 import { LeadsToolbar } from "./LeadsToolbar";
@@ -48,6 +49,29 @@ import { PAGE_SIZE, exportRefusal, scopeLabel } from "./leadsTable";
 import { useLeadRowKit } from "./useLeadRowKit";
 import { useLeadsCopilotSurface } from "./leadsCopilotSurface";
 import { useLeadsLens } from "./useLeadsLens";
+
+type LeadsView = "table" | "desk";
+
+/** Which view this browser last chose, per account. Storage can be absent or refuse. */
+function viewKey(org: string): string {
+  return `calevate:leads-view:${org}`;
+}
+
+function readView(org: string): LeadsView {
+  try {
+    return window.localStorage.getItem(viewKey(org)) === "desk" ? "desk" : "table";
+  } catch {
+    return "table";
+  }
+}
+
+function keepView(org: string, view: LeadsView): void {
+  try {
+    window.localStorage.setItem(viewKey(org), view);
+  } catch {
+    // A browser that keeps nothing still shows the chosen view until the page is left.
+  }
+}
 
 /**
  * The CRM table — every lead an agent captured, and the one place a client works them.
@@ -240,6 +264,17 @@ export function LeadsScreen() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const panelId = useId();
 
+  // Table first on every render the server makes; the remembered view arrives after mount,
+  // so the first paint never disagrees with the server's HTML.
+  const [view, setView] = useState<LeadsView>("table");
+  useEffect(() => setView(readView(session.orgSlug)), [session.orgSlug]);
+  const chooseView = (next: LeadsView) => {
+    setView(next);
+    keepView(session.orgSlug, next);
+  };
+  const desk = view === "desk";
+  const needLabel = leads.data?.available_columns.find((column) => column.key === needKey)?.label ?? null;
+
   return (
     <div className="space-y-4 pb-12">
       <LeadsToolbar
@@ -291,12 +326,12 @@ export function LeadsScreen() {
               count: leads.data ? formatCount(stageCount(s)) : undefined,
             })),
           ]}
-          className="hidden min-w-0 sm:block"
+          className={desk ? "hidden" : "hidden min-w-0 sm:block"}
         />
         {/* L3-12: seven stages do not fit 375px, and a strip scrolled sideways hides the
             stages a client looks for most. A phone gets the native picker instead, with
             the same counts; `display: none` keeps only one of the two in the page. */}
-        <label className="flex min-w-0 items-center gap-2 text-meta text-ink-muted sm:hidden">
+        <label className={desk ? "hidden" : "flex min-w-0 items-center gap-2 text-meta text-ink-muted sm:hidden"}>
           Stage
           <select
             value={f.status ?? ""}
@@ -313,6 +348,15 @@ export function LeadsScreen() {
           </select>
         </label>
         <div className="flex flex-wrap items-center gap-3">
+          <SegmentedControl
+            label="Show as"
+            value={view}
+            onValueChange={(next) => chooseView(next === "desk" ? "desk" : "table")}
+            options={[
+              { value: "table", label: "Table" },
+              { value: "desk", label: "Desk" },
+            ]}
+          />
           <AskAssistant
             prompt={
               selection.wholeQuery || selection.ids.length > 0
@@ -466,7 +510,22 @@ export function LeadsScreen() {
 
       {/* Loading and failure are one answer for both views. `leads.data` can survive a
           failed REFETCH and those rows are real, so the guard is on data, not on error. */}
-      {leads.isLoading ? (
+      {desk ? (
+        <LeadDesk
+          session={session}
+          lens={{ ...lens, status: undefined, columns: undefined }}
+          rows={rows}
+          readOnly={readOnly}
+          readOnlyReason={mayEditLead.reason}
+          needKey={needKey}
+          needLabel={needLabel}
+          hrefFor={kit.hrefFor}
+          onOpenStage={(stage) => {
+            chooseView("table");
+            f.setStatus(stage);
+          }}
+        />
+      ) : leads.isLoading ? (
         <div className="border-y border-line py-4">
           <Skeleton rows={6} label={`Loading your ${nouns.leads}`} />
         </div>
@@ -493,6 +552,7 @@ export function LeadsScreen() {
 
       {followUp.dialogs}
 
+      {!desk && (
       <LeadsFooter
         leads={leads}
         items={items}
@@ -500,6 +560,7 @@ export function LeadsScreen() {
         lens={lens}
         onOffsetChange={f.setOffset}
       />
+      )}
     </div>
   );
 }

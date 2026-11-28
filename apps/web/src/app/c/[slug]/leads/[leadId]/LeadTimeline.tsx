@@ -8,6 +8,7 @@ import { ProblemNotice, Skeleton, formatCount, formatIST } from "@/components/ui
 import { EmptyState } from "@/components/console/emptyState";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { LoadMore } from "@/components/interior/load-more";
+import type { Session } from "@/lib/api/client";
 import type { LeadTimelineEvent, useLeadTimeline } from "@/lib/api/leads";
 import { lookup } from "@/lib/lookup";
 import {
@@ -16,6 +17,8 @@ import {
   momentClock,
   momentLinkSeconds,
 } from "@/lib/callMoments";
+
+import { NoteBody, NoteComposer } from "../LeadNotes";
 
 /**
  * How each event type is dressed. Read with `lookup` and falling back VISIBLY — the
@@ -54,6 +57,8 @@ const FALLBACK_STYLE = {
  * blank the header above it, and an empty list renders only where the server said so.
  */
 export function LeadTimeline({
+  session,
+  leadId,
   timeline,
   events,
   timelineTotal,
@@ -61,6 +66,8 @@ export function LeadTimeline({
   slug,
   href,
 }: {
+  session: Session;
+  leadId: string;
   timeline: ReturnType<typeof useLeadTimeline>;
   events: LeadTimelineEvent[];
   timelineTotal: number | undefined;
@@ -84,6 +91,9 @@ export function LeadTimeline({
           )}
         </div>
 
+        {/* A note joins this history, so it is written here (W7.2). */}
+        <NoteComposer session={session} leadId={leadId} />
+
         {/* The timeline's own failure, its own retry. It must not be answered by the
             header above it, and it must not be answered by an empty list. */}
         {timeline.error && (
@@ -98,7 +108,7 @@ export function LeadTimeline({
           <div className="border-y border-line">
             <Timeline>
               {events.map((event) => (
-                <TimelineRow key={event.id} event={event} slug={slug} href={href} />
+                <TimelineRow key={event.id} event={event} slug={slug} href={href} session={session} leadId={leadId} />
               ))}
             </Timeline>
             {/* The rest of the record, reachable (ux-audit LD4): the history used to
@@ -127,7 +137,7 @@ export function LeadTimeline({
             <EmptyState
               illustration={<EmptySketch kind="calls" />}
               message="Nothing has happened yet"
-              hint="Calls, stage changes and alerts show here."
+              hint="Calls, stage changes, alerts and your notes show here."
             />
           </div>
         )}
@@ -156,10 +166,14 @@ function TimelineRow({
   event,
   slug,
   href,
+  session,
+  leadId,
 }: {
   event: LeadTimelineEvent;
   slug: string;
   href: (path: string) => string;
+  session: Session;
+  leadId: string;
 }) {
   const style = lookup(EVENT_STYLES, event.type) ?? FALLBACK_STYLE;
   return (
@@ -184,13 +198,14 @@ function TimelineRow({
                 href={href(`/c/${slug}/calls/${event.call_id}`)}
                 className="font-medium text-ink-muted hover:underline touch:inline-flex touch:min-h-11 touch:items-center"
               >
-                Open the call
+                {event.note ? "Written from the call" : "Open the call"}
               </Link>
             </>
           )}
         </>
       }
     >
+      {event.note && <NoteBody session={session} leadId={leadId} callId={event.call_id} note={event.note} />}
       {event.call_id && event.moments.length > 0 && (
         <CallMoments event={event} callId={event.call_id} slug={slug} href={href} />
       )}

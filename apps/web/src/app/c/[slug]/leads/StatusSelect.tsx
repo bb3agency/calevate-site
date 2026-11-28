@@ -6,7 +6,7 @@ import { stageLabel } from "@/lib/goalStage";
 export { stageLabel };
 
 /**
- * ONE spelling of the pipeline stages, shared by the table, the board and the lead's own
+ * ONE spelling of the pipeline stages, shared by the table, the desk and the lead's own
  * page. Fixed enum (D-21): clients cannot add statuses, because analytics and the
  * hot-lead rules key off exactly these values.
  *
@@ -18,7 +18,7 @@ export const STATUSES: LeadStatus[] = ["new", "contacted", "interested", "hot", 
 
 /**
  * The stage control. The caller supplies the accessible name (each row's names its own
- * lead) and the classes, because the table cell, the board card and the detail header
+ * lead) and the classes, because the table cell, the desk card and the detail header
  * dress it differently while the options must never differ.
  */
 export function StatusSelect({

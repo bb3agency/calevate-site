@@ -34,6 +34,7 @@ import { clientPageTitle } from "@/lib/clientPageTitle";
 import { useDesktopAlerts } from "@/lib/desktopAlerts";
 
 import { consoleHref } from "./ClientAnnouncements";
+import { ClientFind } from "./ClientFind";
 import { HOME } from "./_ui/copy";
 import { TrialChip, trialView } from "./TrialBanner";
 
@@ -79,6 +80,8 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
         </div>
 
         <div className="flex shrink-0 items-center gap-0.5 sm:gap-2 lg:gap-3">
+          {/* Find a person, call or screen (W7.4): Ctrl/Cmd+K, an icon on a phone. */}
+          <ClientFind slug={slug} />
           {/* Calls in progress now, from the existing 20-second call poll. Renders
               nothing unless at least one call is live. */}
           <LiveCallsPill slug={slug} />

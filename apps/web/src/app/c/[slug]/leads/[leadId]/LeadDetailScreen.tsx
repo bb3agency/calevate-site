@@ -377,6 +377,8 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
       {followUp.dialogs}
 
       <LeadTimeline
+        session={session}
+        leadId={leadId}
         timeline={timeline}
         events={events}
         timelineTotal={timelineTotal}

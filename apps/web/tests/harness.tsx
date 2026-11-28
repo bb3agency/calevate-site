@@ -466,6 +466,11 @@ export function stubApi(routes: Routes): ApiCall[] {
         if (scoped === "GET /v1/calls/kept") {
           return jsonResponse({ recording_days: 90, transcript_days: 365 });
         }
+        // A CALL'S TEAM NOTES (W7.2), answered "none yet" by default: every call page with a
+        // person on file reads them. A test about notes names the route itself.
+        if (/^GET \/v1\/calls\/[^/]+\/notes$/.test(scoped)) {
+          return jsonResponse({ items: [], total: 0, limit: 50 });
+        }
         if (scoped === "GET /v1/inbound-lines/today") {
           return jsonResponse({ day: "2026-11-28", lines: [] });
         }
