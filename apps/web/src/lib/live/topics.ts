@@ -477,6 +477,8 @@ export const STATIC_FAMILIES: Record<string, string> = {
     "what a work says first; its key carries the work's current opening, so a new script is read again",
   signup: "whether a web address is free, asked before the asker has an account to stream to",
   "integration-options": "the fixed list of services an account can connect",
+  "api-keys":
+    "the account's API keys and their request log; the log refreshes on a timer, and keys change only from this screen",
   "call-retention": "the account's retention periods, set from the admin console, not announced",
   "agent-languages":
     "the languages an account may give an agent; they change with an operator's console switch",

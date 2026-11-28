@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
@@ -144,6 +145,12 @@ export function IntegrationsScreen() {
           onAdd={write.allowed && options.data ? () => setAdding(true) : undefined}
         />
         <p className="mt-3 text-meta text-ink-muted">Another CRM? Use Zapier, Make or Pabbly.</p>
+        <p className="mt-1 text-meta text-ink-muted">
+          Your own system?{" "}
+          <Link href={`/c/${session.orgSlug}/integrations/developers`} className="underline">
+            API keys
+          </Link>
+        </p>
       </Section>
 
       <DeliveryLog

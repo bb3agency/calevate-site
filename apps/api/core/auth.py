@@ -67,6 +67,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.write_guard import guard_agent_write
+from apps.api.api_keys.service import (
+    ResolvedKey,
+    address_allowed,
+    key_invalid,
+    resolve,
+    touch_last_used,
+)
 from apps.api.authn.cookies import read_token
 from apps.api.authn.sessions import session_still_live, verify_session
 from apps.api.authn.subjects import Subject, load_subject, load_subject_in
@@ -78,12 +85,13 @@ from apps.api.core.context import (
     Principal,
     Realm,
     bearer_token,
+    note_request_fact,
     principal_var,
 )
 from apps.api.core.errors import ProblemError
 from apps.api.core.impersonation import ImpersonationGrant, verify_grant
 from apps.api.core.logging import get_logger
-from apps.api.core.ratelimit import consume, profile_for, too_many_requests
+from apps.api.core.ratelimit import Decision, consume, profile_for, too_many_requests
 from apps.api.core.rbac import (
     MUTATING_PERMISSIONS,
     VIEW_AS_WITHHELD_ACTS,
@@ -94,6 +102,7 @@ from apps.api.core.rbac import (
 from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.db.session import admin_session, user_session
+from apps.api.public_api.version import VERSION_HEADER, effective_version
 
 log = get_logger(__name__)
 
@@ -1161,6 +1170,154 @@ def requires(
     return dep
 
 
+# --- The machine path: tenant API keys on the public surface (D-1047) ----------------
+#
+# A SEPARATE PATH, NOT A THIRD BRANCH OF `_credential`. The cookie routes keep refusing
+# every bearer (that function's docstring), so a key presented anywhere but `/api/v1/` is
+# the same 401 any stray header gets, and nothing a browser can be talked into carrying
+# opens a cookie route. On `/api/v1/` it is the other way round: no cookie is read, and a
+# request that looks like it came from a page is refused, so a key pasted into a web app
+# cannot be used from that page against its owner.
+
+PUBLIC_API_PREFIX = "/api/v1/"
+#: Set on the ASGI scope by `current_api_key`; read by the public surface's middleware
+#: (rate-limit fields, version header, activity log) and by its per-agent check.
+API_KEY_CALL = "calevate_api_key_call"
+_BROWSER_FETCH_SITES = frozenset({"cross-site", "same-site", "same-origin"})
+#: How often one key's `last_used_at` is written, at most.
+LAST_USED_DEBOUNCE_S = 60
+
+
+@dataclass(frozen=True, slots=True)
+class ApiKeyCall:
+    """One request's resolved key: who it acts as, what it may do, how it is counted."""
+
+    principal: Principal
+    key: ResolvedKey
+    api_version: str
+    limit_decision: Decision
+    window_s: int
+
+
+def _refuse_browser(request: Request) -> None:
+    if request.headers.get("origin") is not None or (
+        request.headers.get("sec-fetch-site") in _BROWSER_FETCH_SITES
+    ):
+        raise ProblemError(
+            kind="permission",
+            code="api_key_browser_refused",
+            title="API keys work from servers only",
+            detail="This request came from a web page, and API keys are not accepted there.",
+            remediation=(
+                "Call the API from your own server or automation tool, where the key stays "
+                "secret. Never put a key in a web page or an app people download."
+            ),
+        )
+
+
+async def _note_key_used(key: ResolvedKey) -> None:
+    """`last_used_at`, at most once a minute per key. A cache, so it fails quietly: a key
+    whose last use is a minute stale is the worst outcome of a Redis outage here."""
+    try:
+        first = await get_redis().set(
+            f"calevate:apikey:used:{key.id}", "1", nx=True, ex=LAST_USED_DEBOUNCE_S
+        )
+    except Exception:
+        log.warning("api_key_last_used_unavailable")
+        return
+    if first:
+        await touch_last_used(key.tenant_id, key.id)
+
+
+async def current_api_key(request: Request) -> ApiKeyCall:
+    """The key this public-surface request presents, resolved, bounded and counted."""
+    memo = request.scope.get(API_KEY_CALL)
+    if isinstance(memo, ApiKeyCall):
+        return memo
+    if not request.url.path.startswith(PUBLIC_API_PREFIX):
+        raise ProblemError.unauthorized()
+    _refuse_browser(request)
+    token = bearer_token(request.headers.get("authorization"))
+    if token is None:
+        raise key_invalid()
+    key = await resolve(token)
+    if not address_allowed(key.ip_cidrs, client_request_ip(request)):
+        log.info("api_key_address_refused", extra={"api_key_id": str(key.id)})
+        raise ProblemError(
+            kind="permission",
+            code="api_key_address_refused",
+            title="Not from this address",
+            detail="This key is limited to certain addresses, and this request came from another.",
+            remediation="Call from an allowed address, or change the key's allowed addresses.",
+        )
+    version = effective_version(request.headers.get(VERSION_HEADER), pinned=key.api_version)
+    principal = Principal(
+        realm="client",
+        user_id=key.created_by,
+        tenant_id=key.tenant_id,
+        role=key.role,
+        kind="api_key",
+        api_key_id=key.id,
+    )
+    principal_var.set(principal)
+    route = _route_template(request)
+    profile = profile_for(route, request.method)
+    ceiling = profile.per_client
+    if key.rate_per_minute is not None:
+        ceiling = min(ceiling, key.rate_per_minute)
+    decision = await consume(profile, "key", str(key.id), ceiling)
+    call = ApiKeyCall(
+        principal=principal,
+        key=key,
+        api_version=version,
+        limit_decision=decision,
+        window_s=profile.window_s,
+    )
+    # Published BEFORE the refusal below, so a 429 still carries the key's `RateLimit`
+    # fields and lands in its activity log.
+    request.scope[API_KEY_CALL] = call
+    note_request_fact(API_KEY_CALL, call)
+    note_request_fact("route", route)
+    if not decision.allowed:
+        log.warning(
+            "rate_limited", extra={"route": route, "profile": profile.name, "dimension": "key"}
+        )
+        raise too_many_requests(decision)
+    await charge_tenant_quota(request, principal)
+    await _note_key_used(key)
+    return call
+
+
+def requires_key(permission: Permission) -> PermissionDependency:
+    """`requires()` for the public surface: the key must carry `permission` (D-1047).
+
+    It carries the same two attributes `requires()` does, so the boot registry
+    (`rbac.assert_policy_registry_complete`) checks a public route's declared permission
+    against what it actually enforces, exactly as it does for a console route.
+    """
+
+    async def _dep(request: Request) -> Principal:
+        call = await current_api_key(request)
+        if permission not in call.key.scopes:
+            raise ProblemError(
+                kind="permission",
+                code="scope_missing",
+                title="This key lacks a permission",
+                detail=f"This request needs `{permission}`, and this key does not carry it.",
+                remediation=(
+                    "Make a key with that permission in Integrations → Developers. A key "
+                    "never carries more than the person who made it holds."
+                ),
+            )
+        await enforce_write_rules(request, call.principal, permission)
+        return call.principal
+
+    dep = cast(PermissionDependency, _dep)
+    dep.calevate_permission = permission
+    dep.calevate_realm = "api_key"
+    return dep
+
+
 def assert_view_as_may(principal: Principal, act: str) -> None:
     """Refuse one NAMED ACT to a view-as session, with the ground `rbac` records for it.
 
@@ -1250,6 +1407,7 @@ async def still_entitled(request: Request, principal: Principal, permission: Per
 
 
 __all__ = [
+    "API_KEY_CALL",
     "DEV_TOKEN_NO_MFA_SUFFIX",
     "IMPERSONATE_HEADER",
     "IMPERSONATION_AUDIT_WINDOW_S",
@@ -1257,6 +1415,8 @@ __all__ = [
     "IMPERSONATION_READ_ACTION",
     "MFA_REQUIRED_REALMS",
     "ORG_HEADER",
+    "PUBLIC_API_PREFIX",
+    "ApiKeyCall",
     "PermissionDependency",
     "VerifiedCaller",
     "assert_view_as_may",
@@ -1264,6 +1424,7 @@ __all__ = [
     "client_request_ip",
     "current_admin",
     "current_any",
+    "current_api_key",
     "current_identity",
     "current_principal",
     # Public because `core/stepup.py` asks it the same question this module does — "is this
@@ -1272,6 +1433,7 @@ __all__ = [
     "dev_tokens_permitted",
     "enforce_write_rules",
     "requires",
+    "requires_key",
     "still_entitled",
     "tenant_of",
     "verify_token",

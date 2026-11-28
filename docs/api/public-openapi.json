@@ -1,0 +1,2755 @@
+{
+  "components": {
+    "schemas": {
+      "PublicAccountOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "status"
+        ],
+        "type": "object"
+      },
+      "PublicAddContactsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "contacts": {
+            "items": {
+              "$ref": "#/components/schemas/PublicContactIn"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "contacts"
+        ],
+        "type": "object"
+      },
+      "PublicAddContactsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "added": {
+            "type": "integer"
+          },
+          "duplicate": {
+            "type": "integer"
+          },
+          "foreign": {
+            "type": "integer"
+          },
+          "malformed": {
+            "type": "integer"
+          },
+          "object": {
+            "const": "contacts_added",
+            "default": "contacts_added",
+            "type": "string"
+          }
+        },
+        "required": [
+          "added",
+          "malformed",
+          "duplicate",
+          "foreign"
+        ],
+        "type": "object"
+      },
+      "PublicAgentList": {
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "type": "string"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PublicAgentOut"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "has_more": {
+            "default": false,
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "object": {
+            "const": "list",
+            "default": "list",
+            "type": "string"
+          }
+        },
+        "required": [
+          "api_version",
+          "data"
+        ],
+        "type": "object"
+      },
+      "PublicAgentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "capture_fields": {
+            "items": {
+              "$ref": "#/components/schemas/PublicCaptureFieldOut"
+            },
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "object": {
+            "const": "agent",
+            "default": "agent",
+            "type": "string"
+          },
+          "published": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "direction",
+          "status",
+          "language",
+          "published",
+          "capture_fields",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "PublicBalanceOut": {
+        "additionalProperties": false,
+        "properties": {
+          "balance_inr": {
+            "type": "string"
+          },
+          "calls_placed_today": {
+            "type": "integer"
+          },
+          "daily_call_budget": {
+            "type": "integer"
+          },
+          "object": {
+            "const": "balance",
+            "default": "balance",
+            "type": "string"
+          },
+          "on_trial": {
+            "type": "boolean"
+          },
+          "outbound_stopped": {
+            "type": "boolean"
+          },
+          "prepaid": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "balance_inr",
+          "prepaid",
+          "outbound_stopped",
+          "on_trial",
+          "daily_call_budget",
+          "calls_placed_today"
+        ],
+        "type": "object"
+      },
+      "PublicCallDetailOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "business_outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "business_outcome_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "callback_requested": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "duration_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inbound_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lead_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "not_placed_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "object": {
+            "const": "call",
+            "default": "call",
+            "type": "string"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "summary_redacted": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "transcript": {
+            "items": {
+              "$ref": "#/components/schemas/PublicTranscriptTurnOut"
+            },
+            "maxItems": 2000,
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "direction",
+          "status",
+          "finished",
+          "agent_id",
+          "lead_id",
+          "campaign_id",
+          "inbound_line_id",
+          "phone",
+          "started_at",
+          "ended_at",
+          "duration_s",
+          "outcome",
+          "business_outcome",
+          "business_outcome_label",
+          "summary_redacted",
+          "next_step",
+          "callback_requested",
+          "not_placed_reason",
+          "created_at",
+          "transcript"
+        ],
+        "type": "object"
+      },
+      "PublicCallList": {
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "type": "string"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PublicCallOut"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "has_more": {
+            "default": false,
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "object": {
+            "const": "list",
+            "default": "list",
+            "type": "string"
+          }
+        },
+        "required": [
+          "api_version",
+          "data"
+        ],
+        "type": "object"
+      },
+      "PublicCallOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "business_outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "business_outcome_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "callback_requested": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "duration_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inbound_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lead_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "not_placed_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "object": {
+            "const": "call",
+            "default": "call",
+            "type": "string"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "summary_redacted": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "direction",
+          "status",
+          "finished",
+          "agent_id",
+          "lead_id",
+          "campaign_id",
+          "inbound_line_id",
+          "phone",
+          "started_at",
+          "ended_at",
+          "duration_s",
+          "outcome",
+          "business_outcome",
+          "business_outcome_label",
+          "summary_redacted",
+          "next_step",
+          "callback_requested",
+          "not_placed_reason",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "PublicCampaignList": {
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "type": "string"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PublicCampaignOut"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "has_more": {
+            "default": false,
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "object": {
+            "const": "list",
+            "default": "list",
+            "type": "string"
+          }
+        },
+        "required": [
+          "api_version",
+          "data"
+        ],
+        "type": "object"
+      },
+      "PublicCampaignOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "launched_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "object": {
+            "const": "campaign",
+            "default": "campaign",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "status",
+          "agent_id",
+          "launched_at",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "PublicCampaignStateOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "object": {
+            "const": "campaign_state",
+            "default": "campaign_state",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "type": "object"
+      },
+      "PublicCaptureFieldOut": {
+        "additionalProperties": false,
+        "properties": {
+          "choices": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "text",
+              "number",
+              "bool",
+              "enum",
+              "date"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "type"
+        ],
+        "type": "object"
+      },
+      "PublicContactIn": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "phone": {
+            "maxLength": 20,
+            "minLength": 8,
+            "type": "string"
+          },
+          "variables": {
+            "additionalProperties": {
+              "maxLength": 200,
+              "type": "string"
+            },
+            "maxProperties": 10,
+            "propertyNames": {
+              "maxLength": 128
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "phone"
+        ],
+        "type": "object"
+      },
+      "PublicCreateLeadIn": {
+        "additionalProperties": false,
+        "properties": {
+          "lead": {
+            "additionalProperties": true,
+            "maxProperties": 100,
+            "type": "object"
+          },
+          "source_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "lead"
+        ],
+        "type": "object"
+      },
+      "PublicCreateLeadOut": {
+        "additionalProperties": false,
+        "properties": {
+          "blocked_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "calling": {
+            "default": false,
+            "type": "boolean"
+          },
+          "lead_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "object": {
+            "const": "lead_intake",
+            "default": "lead_intake",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "duplicate"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "PublicDncAddIn": {
+        "additionalProperties": false,
+        "properties": {
+          "numbers": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "type": "array"
+          },
+          "source": {
+            "default": "manual",
+            "enum": [
+              "customer_request",
+              "manual"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "numbers"
+        ],
+        "type": "object"
+      },
+      "PublicDncAddOut": {
+        "additionalProperties": false,
+        "properties": {
+          "added": {
+            "type": "integer"
+          },
+          "already_suppressed": {
+            "type": "integer"
+          },
+          "malformed": {
+            "type": "integer"
+          },
+          "object": {
+            "const": "dnc_add",
+            "default": "dnc_add",
+            "type": "string"
+          }
+        },
+        "required": [
+          "added",
+          "already_suppressed",
+          "malformed"
+        ],
+        "type": "object"
+      },
+      "PublicDncCheckIn": {
+        "additionalProperties": false,
+        "properties": {
+          "phone": {
+            "maxLength": 20,
+            "minLength": 8,
+            "type": "string"
+          }
+        },
+        "required": [
+          "phone"
+        ],
+        "type": "object"
+      },
+      "PublicDncCheckOut": {
+        "additionalProperties": false,
+        "properties": {
+          "object": {
+            "const": "dnc_check",
+            "default": "dnc_check",
+            "type": "string"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "suppressed": {
+            "type": "boolean"
+          },
+          "valid": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "valid",
+          "suppressed",
+          "scope"
+        ],
+        "type": "object"
+      },
+      "PublicDncEntryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "added_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "object": {
+            "const": "dnc_entry",
+            "default": "dnc_entry",
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "removable": {
+            "type": "boolean"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "phone",
+          "scope",
+          "source",
+          "removable",
+          "added_at"
+        ],
+        "type": "object"
+      },
+      "PublicDncList": {
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "type": "string"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PublicDncEntryOut"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "has_more": {
+            "default": false,
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "object": {
+            "const": "list",
+            "default": "list",
+            "type": "string"
+          }
+        },
+        "required": [
+          "api_version",
+          "data"
+        ],
+        "type": "object"
+      },
+      "PublicDncRemoveIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 200,
+            "minLength": 5,
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object"
+      },
+      "PublicKeyInfoOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "scopes",
+          "agent_ids",
+          "expires_at"
+        ],
+        "type": "object"
+      },
+      "PublicLaunchBlockerOut": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "PublicLaunchCheckOut": {
+        "additionalProperties": false,
+        "properties": {
+          "blockers": {
+            "items": {
+              "$ref": "#/components/schemas/PublicLaunchBlockerOut"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "object": {
+            "const": "launch_check",
+            "default": "launch_check",
+            "type": "string"
+          },
+          "ready": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ready",
+          "blockers"
+        ],
+        "type": "object"
+      },
+      "PublicLaunchOut": {
+        "additionalProperties": false,
+        "properties": {
+          "dialable": {
+            "type": "integer"
+          },
+          "dnc_scrubbed": {
+            "type": "integer"
+          },
+          "object": {
+            "const": "launch",
+            "default": "launch",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "dialable",
+          "dnc_scrubbed"
+        ],
+        "type": "object"
+      },
+      "PublicLeadDetailOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "call_count": {
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/PublicLeadFieldOut"
+            },
+            "maxItems": 200,
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "last_call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "object": {
+            "const": "lead",
+            "default": "lead",
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "phone",
+          "name",
+          "status",
+          "source",
+          "agent_id",
+          "call_count",
+          "last_call_id",
+          "created_at",
+          "updated_at",
+          "fields"
+        ],
+        "type": "object"
+      },
+      "PublicLeadFieldOut": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "text",
+              "number",
+              "bool",
+              "enum",
+              "date"
+            ],
+            "type": "string"
+          },
+          "value": {}
+        },
+        "required": [
+          "key",
+          "label",
+          "type"
+        ],
+        "type": "object"
+      },
+      "PublicLeadList": {
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "type": "string"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PublicLeadOut"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "has_more": {
+            "default": false,
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "object": {
+            "const": "list",
+            "default": "list",
+            "type": "string"
+          }
+        },
+        "required": [
+          "api_version",
+          "data"
+        ],
+        "type": "object"
+      },
+      "PublicLeadOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "call_count": {
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "last_call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "object": {
+            "const": "lead",
+            "default": "lead",
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "phone",
+          "name",
+          "status",
+          "source",
+          "agent_id",
+          "call_count",
+          "last_call_id",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "PublicMeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/PublicAccountOut"
+          },
+          "api_version": {
+            "type": "string"
+          },
+          "key": {
+            "$ref": "#/components/schemas/PublicKeyInfoOut"
+          },
+          "object": {
+            "const": "me",
+            "default": "me",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account",
+          "key",
+          "api_version"
+        ],
+        "type": "object"
+      },
+      "PublicNumberList": {
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "type": "string"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PublicNumberOut"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "has_more": {
+            "default": false,
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "object": {
+            "const": "list",
+            "default": "list",
+            "type": "string"
+          }
+        },
+        "required": [
+          "api_version",
+          "data"
+        ],
+        "type": "object"
+      },
+      "PublicNumberOut": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inbound_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "object": {
+            "const": "number",
+            "default": "number",
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "phone",
+          "direction",
+          "agent_id",
+          "inbound_line_id",
+          "active",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "PublicPlaceCallIn": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "maxLength": 150,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "follow_up_of": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lead_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 150,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "PublicPlaceCallOut": {
+        "additionalProperties": false,
+        "properties": {
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "blocked_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "callback_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lead_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "object": {
+            "const": "call_request",
+            "default": "call_request",
+            "type": "string"
+          },
+          "opens_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "scheduled",
+              "blocked"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "PublicTranscriptTurnOut": {
+        "additionalProperties": false,
+        "properties": {
+          "speaker": {
+            "type": "string"
+          },
+          "text_redacted": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "speaker",
+          "text_redacted"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/agents": {
+      "get": {
+        "operationId": "list_agents_api_v1_agents_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicAgentList"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/api/v1/agents/{agent_id}": {
+      "get": {
+        "operationId": "get_agent_api_v1_agents__agent_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicAgentOut"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/api/v1/balance": {
+      "get": {
+        "operationId": "balance_api_v1_balance_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicBalanceOut"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "wallet:read"
+      }
+    },
+    "/api/v1/calls": {
+      "get": {
+        "operationId": "list_calls_api_v1_calls_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "direction",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(inbound|outbound)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "campaign_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicCallList"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "calls:read"
+      },
+      "post": {
+        "operationId": "place_call_api_v1_calls_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicPlaceCallIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicPlaceCallOut"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/api/v1/calls/{call_id}": {
+      "get": {
+        "operationId": "get_call_api_v1_calls__call_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "wait",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 30,
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicCallDetailOut"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "calls:read"
+      }
+    },
+    "/api/v1/campaigns": {
+      "get": {
+        "operationId": "list_campaigns_api_v1_campaigns_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicCampaignList"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}": {
+      "get": {
+        "operationId": "get_campaign_api_v1_campaigns__campaign_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicCampaignOut"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/contacts": {
+      "post": {
+        "operationId": "add_campaign_contacts_api_v1_campaigns__campaign_id__contacts_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicAddContactsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicAddContactsOut"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/launch": {
+      "post": {
+        "operationId": "launch_campaign_api_v1_campaigns__campaign_id__launch_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicLaunchOut"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/launch-check": {
+      "get": {
+        "operationId": "campaign_launch_check_api_v1_campaigns__campaign_id__launch_check_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicLaunchCheckOut"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/pause": {
+      "post": {
+        "operationId": "pause_campaign_api_v1_campaigns__campaign_id__pause_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicCampaignStateOut"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/resume": {
+      "post": {
+        "operationId": "resume_campaign_api_v1_campaigns__campaign_id__resume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicCampaignStateOut"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/stop": {
+      "post": {
+        "operationId": "stop_campaign_api_v1_campaigns__campaign_id__stop_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicCampaignStateOut"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/api/v1/dnc": {
+      "get": {
+        "operationId": "list_dnc_api_v1_dnc_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicDncList"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "leads:read"
+      },
+      "post": {
+        "operationId": "add_dnc_api_v1_dnc_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicDncAddIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicDncAddOut"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/api/v1/dnc/check": {
+      "post": {
+        "operationId": "check_dnc_api_v1_dnc_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicDncCheckIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicDncCheckOut"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/api/v1/dnc/{entry_id}": {
+      "delete": {
+        "operationId": "remove_dnc_api_v1_dnc__entry_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicDncRemoveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {},
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/api/v1/inbound-calls": {
+      "get": {
+        "operationId": "list_inbound_calls_api_v1_inbound_calls_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicCallList"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "calls:read"
+      }
+    },
+    "/api/v1/leads": {
+      "get": {
+        "operationId": "list_leads_api_v1_leads_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicLeadList"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "leads:read"
+      },
+      "post": {
+        "operationId": "create_lead_api_v1_leads_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicCreateLeadIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicCreateLeadOut"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/api/v1/leads/{lead_id}": {
+      "get": {
+        "operationId": "get_lead_api_v1_leads__lead_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lead_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicLeadDetailOut"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/api/v1/me": {
+      "get": {
+        "operationId": "me_api_v1_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicMeOut"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/api/v1/numbers": {
+      "get": {
+        "operationId": "list_numbers_api_v1_numbers_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicNumberList"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "agents:read"
+      }
+    }
+  },
+  "x-request-schemas": [
+    "PublicAddContactsIn",
+    "PublicContactIn",
+    "PublicCreateLeadIn",
+    "PublicDncAddIn",
+    "PublicDncCheckIn",
+    "PublicDncRemoveIn",
+    "PublicPlaceCallIn"
+  ]
+}

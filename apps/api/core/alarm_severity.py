@@ -115,6 +115,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # is nothing for an operator to do. A wall of these on the console is a signal
     # (someone is hammering us); one of them is not.
     "rate_limited": "record",
+    # An account spent its day of API-placed calls (D-1047): the budget working.
+    "api_daily_call_budget": "record",
     # The limiter could not reach Redis on a spend or bulk route and refused rather than let
     # it through. The outage itself shows on `/healthz/ready` as `redis_down`.
     "rate_limit_unavailable": "record",

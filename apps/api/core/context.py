@@ -16,6 +16,10 @@ from uuid import UUID
 
 Realm = Literal["client", "admin", "system"]
 
+#: How a principal proved itself: a first-party session (cookie, or the local `dev:` token)
+#: or a tenant API key on the public surface (`core/auth.current_api_key`, D-1047).
+PrincipalKind = Literal["session", "api_key"]
+
 correlation_id_var: ContextVar[str | None] = ContextVar("correlation_id", default=None)
 
 # Header names live here, in a leaf module, because BOTH the auth dependency (which
@@ -120,6 +124,11 @@ class Principal:
     #: `requires()` refuses the write anyway if it ever is, because an unattributable write
     #: is the one thing D-587 may not produce.
     impersonation_grant_id: UUID | None = None
+    #: `api_key` only on `/api/v1/` (D-1047). Then `user_id` is the key's CREATOR, so a
+    #: column that stores "which person did this" stays a valid `users.id`, and
+    #: `api_key_id` names the key that acted: `write_audit` records the key as the actor.
+    kind: PrincipalKind = "session"
+    api_key_id: UUID | None = None
 
     @property
     def is_admin(self) -> bool:
@@ -145,14 +154,31 @@ class Principal:
 
 principal_var: ContextVar[Principal | None] = ContextVar("principal", default=None)
 
+#: Facts a request's handlers learn that the outer layers report: today only whether an
+#: idempotent write was answered from its stored record (`Idempotent-Replayed`). A MUTABLE
+#: dict set by the outer middleware, because a value a handler `set()`s on a context
+#: variable is not visible to the middleware that awaited it once any layer between them
+#: copies the context; a dict both hold the same reference to is.
+request_facts_var: ContextVar[dict[str, object] | None] = ContextVar("request_facts", default=None)
+
+
+def note_request_fact(name: str, value: object) -> None:
+    """Record one fact for the outer layers, or nothing outside a request that asked."""
+    facts = request_facts_var.get()
+    if facts is not None:
+        facts[name] = value
+
 
 __all__ = [
     "IMPERSONATE_HEADER",
     "IMPERSONATION_GRANT_HEADER",
     "ORG_HEADER",
     "Principal",
+    "PrincipalKind",
     "Realm",
     "bearer_token",
     "correlation_id_var",
+    "note_request_fact",
     "principal_var",
+    "request_facts_var",
 ]

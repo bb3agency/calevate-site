@@ -12,6 +12,37 @@ schema but nothing emits it yet, we say so.
 
 ---
 
+## 0. Versions and what we promise (D-1047)
+
+**One version today: `2026-12-01`.** Versions are dates. The public API (`/api/v1/**`) and
+these webhooks share them.
+
+- **Within a version, changes are additions only.** We may add an endpoint, an optional
+  parameter, a field in an answer or an envelope, an event type, or a value of a field that
+  lists choices. We never remove or rename a field, change its type, make a field you send
+  required, or change what a permission allows. `scripts/check_public_api_snapshot.py`
+  fails our build on any of these against `docs/api/public-openapi.json`, so the promise is
+  checked, not hoped. Write your code to ignore fields it does not know.
+- **A breaking change is a new dated version.** Your integration keeps the version it was
+  built on: each API key is pinned to the version current when it was made, and a request
+  can name one with the `Calevate-Version` header. An unknown version is refused (`400
+  api_version_unknown`). When a second version ships, the first keeps answering in its
+  own shape.
+- **Every answer says its version** in the `Calevate-Version` response header.
+- **Limits are in every answer**, in the IETF `RateLimit-Policy` and `RateLimit` fields
+  (draft-ietf-httpapi-ratelimit-headers-11): the key's own per-minute bucket (`"per-key"`)
+  and, on a call, the account's calls placed through the API today (`"calls-today"`, IST
+  day). A refusal is `429` with `Retry-After`.
+- **Keys** are `cvk_live_…`, sent as `Authorization: Bearer`. They work only on
+  `/api/v1/`, only from a server (a request carrying `Origin` or a browser's
+  `Sec-Fetch-Site` is refused), and never with more than their maker's own permissions.
+  They expire after 90 days unless renewed.
+
+`api_version` on webhook envelopes (§1.2) carries the same date; it is added by the
+events lane (W2.4) beside the event rows it owns.
+
+---
+
 ## 1. Events we send you
 
 ### 1.1 Event types

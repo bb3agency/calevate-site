@@ -715,6 +715,20 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
         ids["version"] = "1"
         # A test's key inside a run: the run id is what a neighbour must not reach.
         ids["key"] = "k1"
+        # An API key (D-1047): revoking or renewing a neighbour's would stop or extend their
+        # integration.
+        api_key_id = uuid.uuid4()
+        await s.execute(
+            text(
+                "INSERT INTO api_keys (id, tenant_id, created_by, name, display_prefix, "
+                "secret_sha256, scopes, api_version, expires_at) VALUES (:i, :t, :u, 'k', "
+                "'cvk_live_abcd', md5(random()::text) || md5(random()::text), "
+                "ARRAY['org:read'], '2026-12-01', "
+                "now() + interval '90 days')"
+            ),
+            {"i": api_key_id, "t": tenant_id, "u": user_id},
+        )
+        ids["key_id"] = str(api_key_id)
     return ids
 
 
@@ -1010,6 +1024,8 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("POST", "/v1/campaigns/{campaign_id}/lead-suggestions/{suggestion_id}/accept", {}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/lead-suggestions/{suggestion_id}/dismiss", {}, {}),
     ("DELETE", "/v1/dnc/{entry_id}", {}, {}),
+    ("POST", "/v1/api-keys/{key_id}/revoke", {}, {}),
+    ("POST", "/v1/api-keys/{key_id}/renew", {}, {}),
     # A neighbour's opt-out evidence is the caller's own words; restoring one would put a
     # person who said "do not call me" back on another business's dialling list.
     ("GET", "/v1/dnc/{entry_id}/evidence", {}, {}),
@@ -1441,7 +1457,24 @@ async def test_the_idor_sweep_is_driving_routes_that_exist() -> None:
 #: Client-path-space `{id}` routes the sweep deliberately does not drive, and why. The
 #: bar is that the id is NOT an object reference a neighbour could name — otherwise the
 #: entry is an exemption for the exact case the sweep exists to catch.
+_PUBLIC_API_SWEPT_BY_KEY = (
+    "the public API takes an API key, never a session, so this sweep's session gets 401 "
+    "before any row is read; the same ids are driven with a neighbour's KEY by "
+    "`tests/public_api_test.py::test_a_neighbours_key_finds_nothing`, which walks every "
+    "`/api/v1/` id route the same way."
+)
 _NOT_AN_OBJECT_REFERENCE: dict[str, str] = {
+    "GET /api/v1/agents/{agent_id}": _PUBLIC_API_SWEPT_BY_KEY,
+    "GET /api/v1/calls/{call_id}": _PUBLIC_API_SWEPT_BY_KEY,
+    "GET /api/v1/leads/{lead_id}": _PUBLIC_API_SWEPT_BY_KEY,
+    "DELETE /api/v1/dnc/{entry_id}": _PUBLIC_API_SWEPT_BY_KEY,
+    "GET /api/v1/campaigns/{campaign_id}": _PUBLIC_API_SWEPT_BY_KEY,
+    "POST /api/v1/campaigns/{campaign_id}/contacts": _PUBLIC_API_SWEPT_BY_KEY,
+    "GET /api/v1/campaigns/{campaign_id}/launch-check": _PUBLIC_API_SWEPT_BY_KEY,
+    "POST /api/v1/campaigns/{campaign_id}/launch": _PUBLIC_API_SWEPT_BY_KEY,
+    "POST /api/v1/campaigns/{campaign_id}/pause": _PUBLIC_API_SWEPT_BY_KEY,
+    "POST /api/v1/campaigns/{campaign_id}/resume": _PUBLIC_API_SWEPT_BY_KEY,
+    "POST /api/v1/campaigns/{campaign_id}/stop": _PUBLIC_API_SWEPT_BY_KEY,
     "GET /v1/campaigns/{campaign_id}/test-numbers": (
         "the saved test numbers are the caller's own account's (`organizations.test_numbers`, "
         "read under its RLS); the campaign id only says which screen asked, and no row of it "

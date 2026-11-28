@@ -332,6 +332,10 @@ READS_SHAPED_AS_POSTS: dict[str, str] = {
         "the console's Find box (W7.4): looks up people, calls and screens and writes "
         "nothing; a POST because the term can be a phone number"
     ),
+    "/api/v1/dnc/check": (
+        "the public API's twin of `/v1/dnc/check`: it writes nothing, and the number travels "
+        "in the body for the same reason"
+    ),
     "/v1/dnc/check": (
         "'Is this number suppressed?' — it writes nothing, and the number travels in "
         "the body because a query string lands in access logs, referrers and history"
