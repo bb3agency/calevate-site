@@ -350,11 +350,11 @@ PINNED = [("", RULE), ("Is there parking?", "Yes, two cars."), ("", "Always gree
 
 def test_only_a_prohibition_is_a_rule_and_its_words_are_kept() -> None:
     rules = owner_rules(PINNED)
-    assert rules == (OwnerRule(words=RULE, promise="call_back_time"),)
+    assert rules == (OwnerRule(words=RULE, kind="call_back_time"),)
     assert owner_rules([("", "Do not offer a discount. We are open daily.")]) == (
-        OwnerRule(words="Do not offer a discount.", promise="discount"),
+        OwnerRule(words="Do not offer a discount.", kind="discount"),
     )
-    assert owner_rules([("", "Never talk about competitors.")])[0].promise is None
+    assert owner_rules([("", "Never talk about competitors.")])[0].kind is None
 
 
 @pytest.mark.parametrize(

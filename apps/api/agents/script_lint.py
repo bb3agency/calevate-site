@@ -164,10 +164,11 @@ OwnerRuleKind = Literal[
 
 @dataclass(frozen=True, slots=True)
 class OwnerRule:
-    """One owner rule: their words, verbatim, and what it forbids."""
+    """One owner rule: their words, verbatim, and what it forbids; `kind` is None for a rule no
+    code check can see, which still reaches the practice judge as words."""
 
     words: str
-    kind: OwnerRuleKind
+    kind: OwnerRuleKind | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -801,23 +802,33 @@ def promise_problem(where: str, text: str, context: LintContext, *, spoken: bool
 
 _PROHIBITION: Final = re.compile(
     r"^\s*(?:never|do\s+not|don'?t|dont|must\s+not|mustn'?t|should\s+not|shouldn'?t|"
-    r"no\s+one\s+should|no)\b",
+    r"no\s+one\s+should|avoid|no)\b",
     re.IGNORECASE,
 )
-_TIME_WORD: Final = re.compile(r"\b(?:time|times|hour|hours|when|o'?clock|slot|slots)\b", re.I)
-#: A time said in a line: "5 PM", "5:30", "at 5", "which time", "a time".
-_TIME_SAID: Final = re.compile(
-    r"\b\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)|\b\d{1,2}:\d{2}\b|\bo'?clock\b|"
-    r"\bat\s+\d{1,2}\b|\b(?:which|what|a|the|exact)\s+time\b",
+#: Where one rule ends and the next begins inside one pinned fact.
+_RULE_SENTENCE_END: Final = re.compile(r"(?<=[.!?।])\s+|\s*\n+\s*")
+_TIME_WORD: Final = re.compile(
+    r"\b(?:time|times|hour|hours|when|exact|specific|o'?clock|slot|slots)\b", re.I
+)
+#: A clock time said in a line: "5 PM", "5:30", "at 5", "five o'clock", and an hour said with
+#: the call languages' hour words ("5 గంటలకు", "5 baje", "5 बजे").
+_CLOCK_SAID: Final = re.compile(
+    r"\b\d{1,2}(?:[:.]\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)|\b\d{1,2}:\d{2}\b|\bo'?clock\b|"
+    r"\bat\s+\d{1,2}\b|\b\d{1,2}\s*(?:గంట|baje\b|gantala|बजे)",
     re.IGNORECASE,
 )
+#: A time named without a clock ("which time", "a time"): it breaks the rule only in a clause
+#: that does not refuse it ("I can't give a time" keeps it).
+_TIME_NAMED: Final = re.compile(r"\b(?:which|what|a|the|exact)\s+time\b", re.IGNORECASE)
 _DISCOUNT: Final = re.compile(
-    r"\bdiscounts?\b|\d+\s*%\s*off\b|\bpercent off\b|\bconcessions?\b|\bcashback\b", re.I
+    r"\bdiscounts?\b|\d+\s*%\s*off\b|\bpercent off\b|\bconcessions?\b|\bcashback\b|"
+    r"\bcheaper\b|\blower\s+price\b|\bprice\s+cut\b",
+    re.I,
 )
 _PRICE_RULE: Final = re.compile(r"\b(?:prices?|pricing|costs?|fees?|rates?|charges?)\b", re.I)
 _PRICE_SAID: Final = re.compile(r"₹\s*\d|\brs\.?\s*\d|\b\d[\d,]*\s*(?:rupees|rs\b|/-)", re.I)
 _REFUND: Final = re.compile(r"\brefunds?\b|\bmoney back\b", re.IGNORECASE)
-_GUARANTEE: Final = re.compile(r"\bguarantee[sd]?\b|\bassured?\b|\b100\s*%\b", re.IGNORECASE)
+_GUARANTEE: Final = re.compile(r"\bguarantee[sd]?\b|\bassured?\b|\b100\s*%", re.IGNORECASE)
 _BOOKING_RULE: Final = re.compile(r"\b(?:book|booking|appointments?|confirm)\b", re.IGNORECASE)
 
 
@@ -840,18 +851,31 @@ def _rule_kind(words: str) -> OwnerRuleKind | None:
     return None
 
 
-def owner_prohibitions(facts: Iterable[str]) -> tuple[OwnerRule, ...]:
-    """The pinned facts that are "Never" rules naming something a script line can do, each
-    once, in the owner's words."""
+def owner_rules(texts: Iterable[str]) -> tuple[OwnerRule, ...]:
+    """Every "Never" rule in the owner's pinned facts: each sentence of `texts` that opens like
+    one, once, in the owner's words, with what it forbids (`_rule_kind`, None when no code
+    check can see it). The one reader of the owner's rules: the publish check takes those a
+    script line can break (`owner_prohibitions`); the practice judge and the real-call check
+    take them all (`call_rules.owner_rules`)."""
     out: dict[str, OwnerRule] = {}
-    for fact in facts:
-        words = " ".join(fact.split())
-        if not words or not _PROHIBITION.search(words):
-            continue
-        kind = _rule_kind(words)
-        if kind is not None:
-            out.setdefault(words.casefold(), OwnerRule(words, kind))
+    for text in texts:
+        for sentence in _RULE_SENTENCE_END.split(text or ""):
+            words = " ".join(sentence.split())
+            if words and _PROHIBITION.search(words):
+                out.setdefault(words.casefold(), OwnerRule(words, _rule_kind(words)))
     return tuple(out.values())
+
+
+def owner_prohibitions(facts: Iterable[str]) -> tuple[OwnerRule, ...]:
+    """The owner's rules naming something a script line can do (`owner_rules` with a kind)."""
+    return tuple(rule for rule in owner_rules(facts) if rule.kind is not None)
+
+
+def breaks_owner_rule(rule: OwnerRule, text: str) -> bool:
+    """Whether any sentence of `text` does what `rule` forbids; False for a rule with no kind."""
+    return rule.kind is not None and any(
+        _breaks(rule, s) for s in re.split(r"(?<=[.?!।])\s+", text) if s.strip()
+    )
 
 
 def _breaks(rule: OwnerRule, sentence: str) -> bool:
@@ -863,7 +887,9 @@ def _breaks(rule: OwnerRule, sentence: str) -> bool:
         return any(pattern.search(c) and not _NEGATED.search(c) for c in clauses)
 
     if rule.kind == "call_back_time":
-        return offers_call_back(sentence) and bool(_TIME_SAID.search(sentence))
+        return offers_call_back(sentence) and (
+            bool(_CLOCK_SAID.search(sentence)) or said(_TIME_NAMED)
+        )
     if rule.kind == "call_back":
         return offers_call_back(sentence)
     if rule.kind == "discount":
@@ -882,7 +908,7 @@ def _breaks(rule: OwnerRule, sentence: str) -> bool:
 def owner_rule_problem(where: str, text: str, rules: Sequence[OwnerRule]) -> str | None:
     """The first of the owner's rules `text` breaks, named in their words, or None."""
     for rule in rules:
-        if any(_breaks(rule, s) for s in re.split(r"(?<=[.?!।])\s+", text) if s.strip()):
+        if breaks_owner_rule(rule, text):
             return f'{where}: breaks your rule "{rule.words[:120]}"; change the line to keep it.'
     return None
 
@@ -2073,6 +2099,7 @@ __all__ = [
     "asks_when_done",
     "asks_when_done_problems",
     "bracket_problems",
+    "breaks_owner_rule",
     "caller_paths",
     "closes_the_call",
     "collected_label",
@@ -2099,6 +2126,7 @@ __all__ = [
     "own_script_line_problems",
     "owner_prohibitions",
     "owner_rule_problem",
+    "owner_rules",
     "placed_call_opening",
     "placed_opening_problem",
     "placeholder_instruction",
