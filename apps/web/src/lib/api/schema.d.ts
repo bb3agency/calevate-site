@@ -5027,6 +5027,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/analytics/agents-today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Each agent's calls, answered calls and new leads today (IST) */
+        get: operations["get_agents_today_v1_analytics_agents_today_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/analytics/call-groups": {
         parameters: {
             query?: never;
@@ -5118,6 +5135,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/analytics/last-hour": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Calls started in each five minutes of the last hour, and how many are live now */
+        get: operations["get_last_hour_v1_analytics_last_hour_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/analytics/quality-weeks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Per IST week: calls read, goal reached, questions not known, calls with a mistake */
+        get: operations["get_quality_weeks_v1_analytics_quality_weeks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/analytics/reply-speed": {
         parameters: {
             query?: never;
@@ -5138,6 +5189,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/analytics/speed-to-lead": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How fast new leads from lead sources were called, in total and per source
+         * @description From the moment a delivery reached us (or, after hours, its release or the opening it was booked for) to our first call to the person. `24h` is the last 24 hours; the day periods are IST calendar days ending today. `compare` is null below `compare_min_leads` called leads.
+         */
+        get: operations["get_speed_to_lead_v1_analytics_speed_to_lead_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/analytics/stats": {
         parameters: {
             query?: never;
@@ -5145,7 +5216,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The stats band for a range, each figure beside the same length of time before */
+        /**
+         * The stats band for a range, each figure beside the same length of time before
+         * @description `spent_inr` is what left the wallet, added only for a reader holding `billing:read` on a read of the whole account; otherwise `spend_withheld` says why it is absent.
+         */
         get: operations["get_stats_v1_analytics_stats_get"];
         put?: never;
         post?: never;
@@ -5164,7 +5238,7 @@ export interface paths {
         };
         /**
          * Calls, answered calls, new leads and spend per IST day, week or month
-         * @description Weeks start on Monday; the first and last bucket are cut to the range. Spend is what left the wallet and is null with `spend_withheld` when the reader does not hold `billing:read` or one agent is picked.
+         * @description Weeks start on Monday; the first and last bucket are cut to the range. Spend is what left the wallet and is null with `spend_withheld` when the reader does not hold `billing:read`, one agent is picked, or the calls are narrowed.
          */
         get: operations["get_summary_v1_analytics_summary_get"];
         put?: never;
@@ -17599,6 +17673,20 @@ export interface components {
             /** Team Addresses */
             team_addresses: number;
         };
+        /** AgentTodayOut */
+        AgentTodayOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Answered */
+            answered: number;
+            /** Calls */
+            calls: number;
+            /** Interested */
+            interested: number;
+        };
         /** AgentTurnDetectionIn */
         AgentTurnDetectionIn: {
             /** Turn Detection */
@@ -17735,6 +17823,26 @@ export interface components {
             voice_id: string;
             /** Voice Tier */
             voice_tier: string | null;
+        };
+        /**
+         * AgentsTodayOut
+         * @description Agents with a call or a new lead today only; an agent absent here had neither. The
+         *     latest call of any day is the roster's own `GET /v1/agents/stats`.
+         */
+        AgentsTodayOut: {
+            /** Agents */
+            agents: components["schemas"]["AgentTodayOut"][];
+            /**
+             * Ist Date
+             * Format: date
+             */
+            ist_date: string;
+            /**
+             * Timezone
+             * @default Asia/Kolkata
+             * @constant
+             */
+            timezone: "Asia/Kolkata";
         };
         /**
          * AiExtraIn
@@ -29354,6 +29462,25 @@ export interface components {
             /** Unpublished Changes */
             unpublished_changes: number;
         };
+        /** LastHourOut */
+        LastHourOut: {
+            /** Calls */
+            calls: number;
+            /** Live Now */
+            live_now: number;
+            /** Slots */
+            slots: components["schemas"]["LastHourSlotOut"][];
+        };
+        /** LastHourSlotOut */
+        LastHourSlotOut: {
+            /** Calls */
+            calls: number;
+            /**
+             * Start At
+             * Format: date-time
+             */
+            start_at: string;
+        };
         /**
          * LastWriteOut
          * @description Pip's last saved write.
@@ -34307,6 +34434,51 @@ export interface components {
             /** Total Typical Ms */
             total_typical_ms: number | null;
         };
+        /** QualityGapAgentOut */
+        QualityGapAgentOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Name */
+            name: string;
+            /** Open Questions */
+            open_questions: number;
+        };
+        /**
+         * QualityWeekOut
+         * @description One Monday-first IST week of answered real calls, each judged once after the call.
+         */
+        QualityWeekOut: {
+            /** Calls Not Known */
+            calls_not_known: number;
+            /** Calls Read */
+            calls_read: number;
+            /** Calls With Mistakes */
+            calls_with_mistakes: number;
+            /**
+             * From Date
+             * Format: date
+             */
+            from_date: string;
+            /** Goal Reached */
+            goal_reached: number;
+            /** Judged */
+            judged: number;
+            /**
+             * To Date
+             * Format: date
+             */
+            to_date: string;
+        };
+        /** QualityWeeksOut */
+        QualityWeeksOut: {
+            /** Gap Agents */
+            gap_agents: components["schemas"]["QualityGapAgentOut"][];
+            /** Weeks */
+            weeks: components["schemas"]["QualityWeekOut"][];
+        };
         /** QuestionOut */
         QuestionOut: {
             /** Hint */
@@ -37055,6 +37227,120 @@ export interface components {
             tone: string;
         };
         /**
+         * SpeedCompareOut
+         * @description "Called within a minute vs later": leads who became interested, by how fast the first
+         *     call went out. Sent only from `SPEED_COMPARE_MIN_LEADS` called leads, with both counts,
+         *     so a small sample is never read as a finding.
+         */
+        SpeedCompareOut: {
+            /** Fast Called */
+            fast_called: number;
+            /** Fast Interested */
+            fast_interested: number;
+            /** Later Called */
+            later_called: number;
+            /** Later Interested */
+            later_interested: number;
+        };
+        /**
+         * SpeedFiguresOut
+         * @description One set of figures, for every lead source together or for one of them.
+         *
+         *     A lead here is one delivery from a lead source that the account's Call new leads plan
+         *     took on (a Follow-up run started), counted on the instant it reached us. The clock runs
+         *     from that instant to the moment our first call to the person was placed; for a lead held
+         *     or booked for later because it came outside calling hours it runs from the release, or
+         *     from the opening the call was booked for (`from_release` counts them).
+         */
+        SpeedFiguresOut: {
+            /** Called */
+            called: number;
+            /** From Release */
+            from_release: number;
+            /** Interested */
+            interested: number;
+            /** Leads */
+            leads: number;
+            /** Median S */
+            median_s: number | null;
+            /** Never Reached */
+            never_reached: number;
+            /** Reached */
+            reached: number;
+            /** Waiting */
+            waiting: number;
+            /** Within 60S */
+            within_60s: number;
+        };
+        /** SpeedSourceOut */
+        SpeedSourceOut: {
+            /** Called */
+            called: number;
+            /** From Release */
+            from_release: number;
+            /** Interested */
+            interested: number;
+            /** Leads */
+            leads: number;
+            /** Median S */
+            median_s: number | null;
+            /** Never Reached */
+            never_reached: number;
+            /** Reached */
+            reached: number;
+            /** Source */
+            source: string | null;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Waiting */
+            waiting: number;
+            /** Within 60S */
+            within_60s: number;
+        };
+        /** SpeedToLeadOut */
+        SpeedToLeadOut: {
+            compare: components["schemas"]["SpeedCompareOut"] | null;
+            /** Compare Min Leads */
+            compare_min_leads: number;
+            /** Other Sources */
+            other_sources: number;
+            /** Sources */
+            sources: components["schemas"]["SpeedSourceOut"][];
+            total: components["schemas"]["SpeedFiguresOut"];
+            window: components["schemas"]["SpeedWindowOut"];
+        };
+        /**
+         * SpeedWindowOut
+         * @description `24h` is the last 24 hours to the minute; `7d`, `30d` and `90d` are IST calendar days
+         *     ending today, both ends inclusive, as every other range here.
+         */
+        SpeedWindowOut: {
+            /**
+             * End At
+             * Format: date-time
+             */
+            end_at: string;
+            /**
+             * Period
+             * @enum {string}
+             */
+            period: "24h" | "7d" | "30d" | "90d";
+            /**
+             * Start At
+             * Format: date-time
+             */
+            start_at: string;
+            /**
+             * Timezone
+             * @default Asia/Kolkata
+             * @constant
+             */
+            timezone: "Asia/Kolkata";
+        };
+        /**
          * SpendCapRecomputeOut
          * @description What the flag was, what it is now, and the numbers that decided it.
          *
@@ -37325,7 +37611,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "calls" | "answered" | "answer_rate_pct" | "leads" | "hot_leads" | "avg_duration_s" | "talk_minutes";
+            key: "calls" | "answered" | "answer_rate_pct" | "leads" | "hot_leads" | "avg_duration_s" | "talk_minutes" | "interested_rate_pct" | "spent_inr";
             /** Previous */
             previous: string | null;
             /** Value */
@@ -37336,6 +37622,8 @@ export interface components {
             /** Metrics */
             metrics: components["schemas"]["StatsMetricOut"][];
             previous_window: components["schemas"]["RangeOut"];
+            /** Spend Withheld */
+            spend_withheld?: ("no_billing_access" | "one_agent" | "narrowed") | null;
             window: components["schemas"]["RangeOut"];
         };
         /** StatusComponentOut */
@@ -37931,7 +38219,7 @@ export interface components {
             /** Rows */
             rows: components["schemas"]["SummaryRowOut"][];
             /** Spend Withheld */
-            spend_withheld: ("no_billing_access" | "one_agent") | null;
+            spend_withheld: ("no_billing_access" | "one_agent" | "narrowed") | null;
             /** Spent Inr */
             spent_inr: string | null;
             window: components["schemas"]["RangeOut"];
@@ -51761,6 +52049,35 @@ export interface operations {
             };
         };
     };
+    get_agents_today_v1_analytics_agents_today_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentsTodayOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_call_groups_v1_analytics_call_groups_get: {
         parameters: {
             query?: {
@@ -51776,6 +52093,12 @@ export interface operations {
                 test_calls?: boolean;
                 min_calls?: number;
                 limit?: number;
+                /** @description Only this campaign's calls. */
+                campaign_id?: string | null;
+                /** @description Only the calls this inbound line took. */
+                line_id?: string | null;
+                /** @description Only calls made (outbound) or taken (inbound). */
+                direction?: ("inbound" | "outbound") | null;
             };
             header?: never;
             path?: never;
@@ -51884,6 +52207,12 @@ export interface operations {
                 agent_id?: string | null;
                 /** @description True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026). */
                 test_calls?: boolean;
+                /** @description Only this campaign's calls. */
+                campaign_id?: string | null;
+                /** @description Only the calls this inbound line took. */
+                line_id?: string | null;
+                /** @description Only calls made (outbound) or taken (inbound). */
+                direction?: ("inbound" | "outbound") | null;
             };
             header?: never;
             path?: never;
@@ -51923,6 +52252,12 @@ export interface operations {
                 agent_id?: string | null;
                 /** @description True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026). */
                 test_calls?: boolean;
+                /** @description Only this campaign's calls. */
+                campaign_id?: string | null;
+                /** @description Only the calls this inbound line took. */
+                line_id?: string | null;
+                /** @description Only calls made (outbound) or taken (inbound). */
+                direction?: ("inbound" | "outbound") | null;
             };
             header?: never;
             path?: never;
@@ -51937,6 +52272,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HeatmapOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_last_hour_v1_analytics_last_hour_get: {
+        parameters: {
+            query?: {
+                /** @description Only this agent's calls and leads. */
+                agent_id?: string | null;
+                /** @description Only this campaign's calls. */
+                campaign_id?: string | null;
+                /** @description Only the calls this inbound line took. */
+                line_id?: string | null;
+                /** @description Only calls made (outbound) or taken (inbound). */
+                direction?: ("inbound" | "outbound") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LastHourOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_quality_weeks_v1_analytics_quality_weeks_get: {
+        parameters: {
+            query?: {
+                weeks?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QualityWeeksOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -51981,6 +52385,38 @@ export interface operations {
             };
         };
     };
+    get_speed_to_lead_v1_analytics_speed_to_lead_get: {
+        parameters: {
+            query?: {
+                /** @description 24h, 7d, 30d or 90d */
+                period?: "24h" | "7d" | "30d" | "90d";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpeedToLeadOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_stats_v1_analytics_stats_get: {
         parameters: {
             query?: {
@@ -51992,6 +52428,12 @@ export interface operations {
                 agent_id?: string | null;
                 /** @description True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026). */
                 test_calls?: boolean;
+                /** @description Only this campaign's calls. */
+                campaign_id?: string | null;
+                /** @description Only the calls this inbound line took. */
+                line_id?: string | null;
+                /** @description Only calls made (outbound) or taken (inbound). */
+                direction?: ("inbound" | "outbound") | null;
             };
             header?: never;
             path?: never;
@@ -52032,6 +52474,12 @@ export interface operations {
                 agent_id?: string | null;
                 /** @description True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026). */
                 test_calls?: boolean;
+                /** @description Only this campaign's calls. */
+                campaign_id?: string | null;
+                /** @description Only the calls this inbound line took. */
+                line_id?: string | null;
+                /** @description Only calls made (outbound) or taken (inbound). */
+                direction?: ("inbound" | "outbound") | null;
             };
             header?: never;
             path?: never;
@@ -52070,6 +52518,12 @@ export interface operations {
                 agent_id?: string | null;
                 /** @description True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026). */
                 test_calls?: boolean;
+                /** @description Only this campaign's calls. */
+                campaign_id?: string | null;
+                /** @description Only the calls this inbound line took. */
+                line_id?: string | null;
+                /** @description Only calls made (outbound) or taken (inbound). */
+                direction?: ("inbound" | "outbound") | null;
             };
             header?: never;
             path?: never;

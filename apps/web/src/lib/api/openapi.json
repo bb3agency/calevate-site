@@ -4989,6 +4989,36 @@
         "title": "AgentTeamAlertOut",
         "type": "object"
       },
+      "AgentTodayOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "answered": {
+            "title": "Answered",
+            "type": "integer"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "interested": {
+            "title": "Interested",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "agent_id",
+          "calls",
+          "answered",
+          "interested"
+        ],
+        "title": "AgentTodayOut",
+        "type": "object"
+      },
       "AgentTurnDetectionIn": {
         "additionalProperties": false,
         "properties": {
@@ -5448,6 +5478,36 @@
           "catalog"
         ],
         "title": "AgentVoiceOut",
+        "type": "object"
+      },
+      "AgentsTodayOut": {
+        "additionalProperties": false,
+        "description": "Agents with a call or a new lead today only; an agent absent here had neither. The\nlatest call of any day is the roster's own `GET /v1/agents/stats`.",
+        "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/AgentTodayOut"
+            },
+            "title": "Agents",
+            "type": "array"
+          },
+          "ist_date": {
+            "format": "date",
+            "title": "Ist Date",
+            "type": "string"
+          },
+          "timezone": {
+            "const": "Asia/Kolkata",
+            "default": "Asia/Kolkata",
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ist_date",
+          "agents"
+        ],
+        "title": "AgentsTodayOut",
         "type": "object"
       },
       "AiExtraIn": {
@@ -37875,6 +37935,53 @@
         "title": "LanguageSummaryOut",
         "type": "object"
       },
+      "LastHourOut": {
+        "additionalProperties": false,
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "live_now": {
+            "title": "Live Now",
+            "type": "integer"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/LastHourSlotOut"
+            },
+            "title": "Slots",
+            "type": "array"
+          }
+        },
+        "required": [
+          "live_now",
+          "calls",
+          "slots"
+        ],
+        "title": "LastHourOut",
+        "type": "object"
+      },
+      "LastHourSlotOut": {
+        "additionalProperties": false,
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_at",
+          "calls"
+        ],
+        "title": "LastHourSlotOut",
+        "type": "object"
+      },
       "LastWriteOut": {
         "additionalProperties": false,
         "description": "Pip's last saved write.",
@@ -51889,6 +51996,103 @@
         "title": "QualityFigures",
         "type": "object"
       },
+      "QualityGapAgentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "open_questions": {
+            "title": "Open Questions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "agent_id",
+          "name",
+          "open_questions"
+        ],
+        "title": "QualityGapAgentOut",
+        "type": "object"
+      },
+      "QualityWeekOut": {
+        "additionalProperties": false,
+        "description": "One Monday-first IST week of answered real calls, each judged once after the call.",
+        "properties": {
+          "calls_not_known": {
+            "title": "Calls Not Known",
+            "type": "integer"
+          },
+          "calls_read": {
+            "title": "Calls Read",
+            "type": "integer"
+          },
+          "calls_with_mistakes": {
+            "title": "Calls With Mistakes",
+            "type": "integer"
+          },
+          "from_date": {
+            "format": "date",
+            "title": "From Date",
+            "type": "string"
+          },
+          "goal_reached": {
+            "title": "Goal Reached",
+            "type": "integer"
+          },
+          "judged": {
+            "title": "Judged",
+            "type": "integer"
+          },
+          "to_date": {
+            "format": "date",
+            "title": "To Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_date",
+          "to_date",
+          "calls_read",
+          "judged",
+          "goal_reached",
+          "calls_not_known",
+          "calls_with_mistakes"
+        ],
+        "title": "QualityWeekOut",
+        "type": "object"
+      },
+      "QualityWeeksOut": {
+        "additionalProperties": false,
+        "properties": {
+          "gap_agents": {
+            "items": {
+              "$ref": "#/components/schemas/QualityGapAgentOut"
+            },
+            "title": "Gap Agents",
+            "type": "array"
+          },
+          "weeks": {
+            "items": {
+              "$ref": "#/components/schemas/QualityWeekOut"
+            },
+            "title": "Weeks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "weeks",
+          "gap_agents"
+        ],
+        "title": "QualityWeeksOut",
+        "type": "object"
+      },
       "QuestionOut": {
         "additionalProperties": false,
         "properties": {
@@ -58847,6 +59051,262 @@
         "title": "SpeakingStyle",
         "type": "object"
       },
+      "SpeedCompareOut": {
+        "additionalProperties": false,
+        "description": "\"Called within a minute vs later\": leads who became interested, by how fast the first\ncall went out. Sent only from `SPEED_COMPARE_MIN_LEADS` called leads, with both counts,\nso a small sample is never read as a finding.",
+        "properties": {
+          "fast_called": {
+            "title": "Fast Called",
+            "type": "integer"
+          },
+          "fast_interested": {
+            "title": "Fast Interested",
+            "type": "integer"
+          },
+          "later_called": {
+            "title": "Later Called",
+            "type": "integer"
+          },
+          "later_interested": {
+            "title": "Later Interested",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "fast_called",
+          "fast_interested",
+          "later_called",
+          "later_interested"
+        ],
+        "title": "SpeedCompareOut",
+        "type": "object"
+      },
+      "SpeedFiguresOut": {
+        "additionalProperties": false,
+        "description": "One set of figures, for every lead source together or for one of them.\n\nA lead here is one delivery from a lead source that the account's Call new leads plan\ntook on (a Follow-up run started), counted on the instant it reached us. The clock runs\nfrom that instant to the moment our first call to the person was placed; for a lead held\nor booked for later because it came outside calling hours it runs from the release, or\nfrom the opening the call was booked for (`from_release` counts them).",
+        "properties": {
+          "called": {
+            "title": "Called",
+            "type": "integer"
+          },
+          "from_release": {
+            "title": "From Release",
+            "type": "integer"
+          },
+          "interested": {
+            "title": "Interested",
+            "type": "integer"
+          },
+          "leads": {
+            "title": "Leads",
+            "type": "integer"
+          },
+          "median_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median S"
+          },
+          "never_reached": {
+            "title": "Never Reached",
+            "type": "integer"
+          },
+          "reached": {
+            "title": "Reached",
+            "type": "integer"
+          },
+          "waiting": {
+            "title": "Waiting",
+            "type": "integer"
+          },
+          "within_60s": {
+            "title": "Within 60S",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "leads",
+          "called",
+          "median_s",
+          "within_60s",
+          "reached",
+          "never_reached",
+          "waiting",
+          "interested",
+          "from_release"
+        ],
+        "title": "SpeedFiguresOut",
+        "type": "object"
+      },
+      "SpeedSourceOut": {
+        "additionalProperties": false,
+        "properties": {
+          "called": {
+            "title": "Called",
+            "type": "integer"
+          },
+          "from_release": {
+            "title": "From Release",
+            "type": "integer"
+          },
+          "interested": {
+            "title": "Interested",
+            "type": "integer"
+          },
+          "leads": {
+            "title": "Leads",
+            "type": "integer"
+          },
+          "median_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median S"
+          },
+          "never_reached": {
+            "title": "Never Reached",
+            "type": "integer"
+          },
+          "reached": {
+            "title": "Reached",
+            "type": "integer"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "waiting": {
+            "title": "Waiting",
+            "type": "integer"
+          },
+          "within_60s": {
+            "title": "Within 60S",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "leads",
+          "called",
+          "median_s",
+          "within_60s",
+          "reached",
+          "never_reached",
+          "waiting",
+          "interested",
+          "from_release",
+          "source_id",
+          "source"
+        ],
+        "title": "SpeedSourceOut",
+        "type": "object"
+      },
+      "SpeedToLeadOut": {
+        "additionalProperties": false,
+        "properties": {
+          "compare": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpeedCompareOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "compare_min_leads": {
+            "title": "Compare Min Leads",
+            "type": "integer"
+          },
+          "other_sources": {
+            "title": "Other Sources",
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SpeedSourceOut"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "total": {
+            "$ref": "#/components/schemas/SpeedFiguresOut"
+          },
+          "window": {
+            "$ref": "#/components/schemas/SpeedWindowOut"
+          }
+        },
+        "required": [
+          "window",
+          "total",
+          "sources",
+          "other_sources",
+          "compare",
+          "compare_min_leads"
+        ],
+        "title": "SpeedToLeadOut",
+        "type": "object"
+      },
+      "SpeedWindowOut": {
+        "additionalProperties": false,
+        "description": "`24h` is the last 24 hours to the minute; `7d`, `30d` and `90d` are IST calendar days\nending today, both ends inclusive, as every other range here.",
+        "properties": {
+          "end_at": {
+            "format": "date-time",
+            "title": "End At",
+            "type": "string"
+          },
+          "period": {
+            "enum": [
+              "24h",
+              "7d",
+              "30d",
+              "90d"
+            ],
+            "title": "Period",
+            "type": "string"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          },
+          "timezone": {
+            "const": "Asia/Kolkata",
+            "default": "Asia/Kolkata",
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "period",
+          "start_at",
+          "end_at"
+        ],
+        "title": "SpeedWindowOut",
+        "type": "object"
+      },
       "SpendCapRecomputeOut": {
         "additionalProperties": false,
         "description": "What the flag was, what it is now, and the numbers that decided it.\n\nAn operator running this mid-incident needs to know not just whether the tenant is\nreleased but WHY \u2014 a recompute that leaves `capped` true has done its job and the\nceiling is simply still below the spend. Reporting the counters and the effective\nceiling next to the flag is what turns \"it did not work\" into \"the ceiling is 2 and\nthey have used 3\".",
@@ -59492,7 +59952,9 @@
               "leads",
               "hot_leads",
               "avg_duration_s",
-              "talk_minutes"
+              "talk_minutes",
+              "interested_rate_pct",
+              "spent_inr"
             ],
             "title": "Key",
             "type": "string"
@@ -59544,6 +60006,22 @@
           },
           "previous_window": {
             "$ref": "#/components/schemas/RangeOut"
+          },
+          "spend_withheld": {
+            "anyOf": [
+              {
+                "enum": [
+                  "no_billing_access",
+                  "one_agent",
+                  "narrowed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spend Withheld"
           },
           "window": {
             "$ref": "#/components/schemas/RangeOut"
@@ -61179,7 +61657,8 @@
               {
                 "enum": [
                   "no_billing_access",
-                  "one_agent"
+                  "one_agent",
+                  "narrowed"
                 ],
                 "type": "string"
               },
@@ -87980,6 +88459,34 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/analytics/agents-today": {
+      "get": {
+        "operationId": "get_agents_today_v1_analytics_agents_today_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentsTodayOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Each agent's calls, answered calls and new leads today (IST)",
+        "tags": [
+          "analytics"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
     "/v1/analytics/call-groups": {
       "get": {
         "description": "`min_calls=2` with `by=caller` lists repeat callers. The totals count every call; only `groups` is cut to `limit`. A caller is shown by lead and the number's last two digits, never the number.",
@@ -88088,6 +88595,66 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Only this campaign's calls.",
+            "in": "query",
+            "name": "campaign_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this campaign's calls.",
+              "title": "Campaign Id"
+            }
+          },
+          {
+            "description": "Only the calls this inbound line took.",
+            "in": "query",
+            "name": "line_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the calls this inbound line took.",
+              "title": "Line Id"
+            }
+          },
+          {
+            "description": "Only calls made (outbound) or taken (inbound).",
+            "in": "query",
+            "name": "direction",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "inbound",
+                    "outbound"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only calls made (outbound) or taken (inbound).",
+              "title": "Direction"
             }
           }
         ],
@@ -88345,6 +88912,66 @@
               "title": "Test Calls",
               "type": "boolean"
             }
+          },
+          {
+            "description": "Only this campaign's calls.",
+            "in": "query",
+            "name": "campaign_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this campaign's calls.",
+              "title": "Campaign Id"
+            }
+          },
+          {
+            "description": "Only the calls this inbound line took.",
+            "in": "query",
+            "name": "line_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the calls this inbound line took.",
+              "title": "Line Id"
+            }
+          },
+          {
+            "description": "Only calls made (outbound) or taken (inbound).",
+            "in": "query",
+            "name": "direction",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "inbound",
+                    "outbound"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only calls made (outbound) or taken (inbound).",
+              "title": "Direction"
+            }
           }
         ],
         "responses": {
@@ -88453,6 +89080,66 @@
               "title": "Test Calls",
               "type": "boolean"
             }
+          },
+          {
+            "description": "Only this campaign's calls.",
+            "in": "query",
+            "name": "campaign_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this campaign's calls.",
+              "title": "Campaign Id"
+            }
+          },
+          {
+            "description": "Only the calls this inbound line took.",
+            "in": "query",
+            "name": "line_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the calls this inbound line took.",
+              "title": "Line Id"
+            }
+          },
+          {
+            "description": "Only calls made (outbound) or taken (inbound).",
+            "in": "query",
+            "name": "direction",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "inbound",
+                    "outbound"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only calls made (outbound) or taken (inbound).",
+              "title": "Direction"
+            }
           }
         ],
         "responses": {
@@ -88474,6 +89161,157 @@
           }
         },
         "summary": "Calls or new leads per IST weekday and hour \u2014 always 168 cells",
+        "tags": [
+          "analytics"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/analytics/last-hour": {
+      "get": {
+        "operationId": "get_last_hour_v1_analytics_last_hour_get",
+        "parameters": [
+          {
+            "description": "Only this agent's calls and leads.",
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this agent's calls and leads.",
+              "title": "Agent Id"
+            }
+          },
+          {
+            "description": "Only this campaign's calls.",
+            "in": "query",
+            "name": "campaign_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this campaign's calls.",
+              "title": "Campaign Id"
+            }
+          },
+          {
+            "description": "Only the calls this inbound line took.",
+            "in": "query",
+            "name": "line_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the calls this inbound line took.",
+              "title": "Line Id"
+            }
+          },
+          {
+            "description": "Only calls made (outbound) or taken (inbound).",
+            "in": "query",
+            "name": "direction",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "inbound",
+                    "outbound"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only calls made (outbound) or taken (inbound).",
+              "title": "Direction"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LastHourOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Calls started in each five minutes of the last hour, and how many are live now",
+        "tags": [
+          "analytics"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/analytics/quality-weeks": {
+      "get": {
+        "operationId": "get_quality_weeks_v1_analytics_quality_weeks_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "weeks",
+            "required": false,
+            "schema": {
+              "default": 8,
+              "maximum": 12,
+              "minimum": 1,
+              "title": "Weeks",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityWeeksOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Per IST week: calls read, goal reached, questions not known, calls with a mistake",
         "tags": [
           "analytics"
         ],
@@ -88523,8 +89361,58 @@
         "x-calevate-permission": "calls:read"
       }
     },
+    "/v1/analytics/speed-to-lead": {
+      "get": {
+        "description": "From the moment a delivery reached us (or, after hours, its release or the opening it was booked for) to our first call to the person. `24h` is the last 24 hours; the day periods are IST calendar days ending today. `compare` is null below `compare_min_leads` called leads.",
+        "operationId": "get_speed_to_lead_v1_analytics_speed_to_lead_get",
+        "parameters": [
+          {
+            "description": "24h, 7d, 30d or 90d",
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "default": "7d",
+              "description": "24h, 7d, 30d or 90d",
+              "enum": [
+                "24h",
+                "7d",
+                "30d",
+                "90d"
+              ],
+              "title": "Period",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeedToLeadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "How fast new leads from lead sources were called, in total and per source",
+        "tags": [
+          "analytics"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
     "/v1/analytics/stats": {
       "get": {
+        "description": "`spent_inr` is what left the wallet, added only for a reader holding `billing:read` on a read of the whole account; otherwise `spend_withheld` says why it is absent.",
         "operationId": "get_stats_v1_analytics_stats_get",
         "parameters": [
           {
@@ -88590,6 +89478,66 @@
               "title": "Test Calls",
               "type": "boolean"
             }
+          },
+          {
+            "description": "Only this campaign's calls.",
+            "in": "query",
+            "name": "campaign_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this campaign's calls.",
+              "title": "Campaign Id"
+            }
+          },
+          {
+            "description": "Only the calls this inbound line took.",
+            "in": "query",
+            "name": "line_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the calls this inbound line took.",
+              "title": "Line Id"
+            }
+          },
+          {
+            "description": "Only calls made (outbound) or taken (inbound).",
+            "in": "query",
+            "name": "direction",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "inbound",
+                    "outbound"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only calls made (outbound) or taken (inbound).",
+              "title": "Direction"
+            }
           }
         ],
         "responses": {
@@ -88619,7 +89567,7 @@
     },
     "/v1/analytics/summary": {
       "get": {
-        "description": "Weeks start on Monday; the first and last bucket are cut to the range. Spend is what left the wallet and is null with `spend_withheld` when the reader does not hold `billing:read` or one agent is picked.",
+        "description": "Weeks start on Monday; the first and last bucket are cut to the range. Spend is what left the wallet and is null with `spend_withheld` when the reader does not hold `billing:read`, one agent is picked, or the calls are narrowed.",
         "operationId": "get_summary_v1_analytics_summary_get",
         "parameters": [
           {
@@ -88701,6 +89649,66 @@
               "description": "True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026).",
               "title": "Test Calls",
               "type": "boolean"
+            }
+          },
+          {
+            "description": "Only this campaign's calls.",
+            "in": "query",
+            "name": "campaign_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this campaign's calls.",
+              "title": "Campaign Id"
+            }
+          },
+          {
+            "description": "Only the calls this inbound line took.",
+            "in": "query",
+            "name": "line_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the calls this inbound line took.",
+              "title": "Line Id"
+            }
+          },
+          {
+            "description": "Only calls made (outbound) or taken (inbound).",
+            "in": "query",
+            "name": "direction",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "inbound",
+                    "outbound"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only calls made (outbound) or taken (inbound).",
+              "title": "Direction"
             }
           }
         ],
@@ -88795,6 +89803,66 @@
               "description": "True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026).",
               "title": "Test Calls",
               "type": "boolean"
+            }
+          },
+          {
+            "description": "Only this campaign's calls.",
+            "in": "query",
+            "name": "campaign_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this campaign's calls.",
+              "title": "Campaign Id"
+            }
+          },
+          {
+            "description": "Only the calls this inbound line took.",
+            "in": "query",
+            "name": "line_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the calls this inbound line took.",
+              "title": "Line Id"
+            }
+          },
+          {
+            "description": "Only calls made (outbound) or taken (inbound).",
+            "in": "query",
+            "name": "direction",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "inbound",
+                    "outbound"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only calls made (outbound) or taken (inbound).",
+              "title": "Direction"
             }
           }
         ],

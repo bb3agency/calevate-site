@@ -362,6 +362,27 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/analytics/cost-per-result": BoundedByConstruction(
         by="one window per `analytics/proof.COST_WINDOWS` (two: 7 and 30 days) (D-944)."
     ),
+    "GET /v1/analytics/speed-to-lead": BoundedByConstruction(
+        by=(
+            "at most `analytics/speed.MAX_SPEED_SOURCES` (20) source rows, cut in Python; "
+            "the rest are summed into `other_sources` (W8.1)."
+        )
+    ),
+    "GET /v1/analytics/agents-today": BoundedByConstruction(
+        by=(
+            "both reads are `LIMIT agents/roster.AGENT_ROSTER_LIMIT` (200) and the merged "
+            "list is cut to the same ceiling (W8.3)."
+        )
+    ),
+    "GET /v1/analytics/last-hour": BoundedByConstruction(
+        by="exactly `analytics/today.LAST_HOUR_SLOTS` (12) five-minute slots (W8.2)."
+    ),
+    "GET /v1/analytics/quality-weeks": BoundedByConstruction(
+        by=(
+            "one row per IST week, `weeks` at most `analytics/today.MAX_QUALITY_WEEKS` (12), "
+            "and `gap_agents` is `LIMIT analytics/today.MAX_GAP_AGENTS` (5) (W8.5)."
+        )
+    ),
     "GET /v1/ops/reply-speed-by-language": BoundedByConstruction(
         by=(
             "one row per IST week (`weeks`, at most `analytics/proof.MAX_WEEKS`) and language "

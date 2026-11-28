@@ -6,6 +6,7 @@
  */
 
 import { formatDateShort } from "@/components/arc/ist-dates";
+import { tableCsv } from "@/lib/csvDownload";
 import { formatINR } from "@/lib/numberDisplay";
 
 import type { components } from "@/lib/api/schema";
@@ -53,12 +54,6 @@ export function specTable(spec: ChartSpec): { columns: string[]; rows: string[][
   };
 }
 
-function csvCell(value: string): string {
-  // A cell a spreadsheet would run as a formula is prefixed, as the server's exports do.
-  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
-  return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
-}
-
 /** The spec as CSV, with raw decimal values so a spreadsheet can sum them. */
 export function specCsv(spec: ChartSpec): string {
   let columns: string[];
@@ -74,7 +69,7 @@ export function specCsv(spec: ChartSpec): string {
     columns = [x.label, ...spec.series.map((s) => s.label)];
     rows = x.labels.map((label, i) => [label, ...spec.series.map((s) => s.values[i] ?? "0")]);
   }
-  return [columns, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
+  return tableCsv(columns, rows);
 }
 
 /**

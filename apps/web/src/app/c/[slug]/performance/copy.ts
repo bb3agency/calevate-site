@@ -45,6 +45,9 @@ export const PERFORMANCE_COPY = {
   groupsLoading: "Counting calls",
   groupsNone: "No calls in this period.",
   groupsNoRepeat: "Nobody had more than one call in this period.",
+  spendNarrowed: "Spend is shown for the whole account, without filters.",
+  everyCallBelow: "The two panels below count every call.",
+  download: "Download",
 } as const;
 
 export const periodHeadline = (range: string): string => `How your agents did, ${range}.`;

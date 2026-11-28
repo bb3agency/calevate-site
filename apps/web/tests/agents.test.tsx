@@ -8,6 +8,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import AgentsPage from "@/app/c/[slug]/agents/page";
+import { rosterState } from "@/app/c/[slug]/agents/Roster";
 import { ToastProvider } from "@/components/arc/toast";
 import { ARCHIVED_QUERY, type Agent, type AgentStats } from "@/lib/api/agents";
 import type { Lanes } from "@/lib/api/publishing";
@@ -813,5 +814,59 @@ describe("a ready agent on a free trial", () => {
     );
     expect(await screen.findByText("On for test calls")).toBeTruthy();
     expect(screen.queryByText("Ready, not taking calls")).toBeNull();
+  });
+});
+
+describe("is it working today? (W8.3)", () => {
+  const TODAY_PATH = "/v1/analytics/agents-today";
+
+  it("sorts agents into Working, Off and Not live yet", () => {
+    expect(rosterState(agent())).toBe("working");
+    expect(rosterState(agent({ status: "paused" }))).toBe("off");
+    expect(rosterState(agent({ published: false, status: "draft" }))).toBe("not_live");
+  });
+
+  it("says today's calls and interested people on the row, and offers Try it", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        [TODAY_PATH]: {
+          ist_date: "2026-11-28",
+          timezone: "Asia/Kolkata",
+          agents: [{ agent_id: "agent-1", calls: 12, answered: 9, interested: 3 }],
+        },
+      }),
+    );
+    expect(await screen.findByText(/Today: 12 calls · 3 interested/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Try it" }).getAttribute("href")).toContain(
+      "/agents/agent-1?section=training",
+    );
+  });
+
+  it("shows no Today line when the read fails, never a zero it does not know", async () => {
+    await renderClientPage(page, routes({ [TODAY_PATH]: problem(503, { title: "Unavailable" }) }));
+    await screen.findAllByText("Reception");
+    await waitFor(() => expect(screen.queryByText(/Today:/)).toBeNull());
+  });
+
+  it("finds an agent by name and by state once there are more than five", async () => {
+    const many = Array.from({ length: 6 }, (_, i) =>
+      agent({
+        id: `agent-${i}`,
+        name: i === 0 ? "Night desk" : `Desk ${i}`,
+        published: i !== 5,
+        status: i === 5 ? "draft" : "live",
+      }),
+    );
+    await renderClientPage(page, routes({ "/v1/agents": many, "/v1/agents/stats": [] }));
+    const search = await screen.findByRole("searchbox", { name: "Find an agent" });
+    fireEvent.change(search, { target: { value: "night" } });
+    const list = screen.getByRole("list", { name: "Your agents" });
+    await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(1));
+    fireEvent.change(search, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: /Not live yet 1/ }));
+    await waitFor(() =>
+      expect(within(screen.getByRole("list", { name: "Your agents" })).getAllByRole("listitem")).toHaveLength(1),
+    );
   });
 });

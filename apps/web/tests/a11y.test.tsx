@@ -3416,6 +3416,17 @@ const CLIENT_SCREENS: Screen[] = [
       ...LEAD_CALLING_ROUTES,
       "/v1/me": ME,
       "/v1/agents": [AGENT],
+      // W8.1: a week with timed leads, so the sweep covers the band and the source table.
+      "/v1/analytics/speed-to-lead?period=7d": {
+        window: { period: "7d", start_at: "2026-08-07T00:00:00+05:30", end_at: "2026-08-14T00:00:00+05:30", timezone: "Asia/Kolkata" },
+        total: { leads: 4, called: 3, median_s: 22, within_60s: 2, reached: 2, never_reached: 1, waiting: 1, interested: 1, from_release: 0 },
+        sources: [
+          { leads: 4, called: 3, median_s: 22, within_60s: 2, reached: 2, never_reached: 1, waiting: 1, interested: 1, from_release: 0, source_id: "src-1", source: "website_form" },
+        ],
+        other_sources: 0,
+        compare: null,
+        compare_min_leads: 30,
+      },
       "/v1/lead-sources": {
         items: [
           {

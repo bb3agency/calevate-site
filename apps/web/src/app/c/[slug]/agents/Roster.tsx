@@ -8,8 +8,8 @@
  * the detail screen also read. The count of working agents is the page header's status
  * (see `page.tsx`), so the list carries no group headings of its own.
  *
- * Each row is ONE link (doctrine §4: one target per row) and a ⋯ menu as the deliberate
- * second target. Delete in that menu opens a confirm dialog that states the four
+ * Each row is ONE link (doctrine §4: one target per row), a "Try it" text action that opens
+ * the agent's practice chat, and a ⋯ menu. Delete in that menu opens a confirm dialog that states the four
  * consequences before it does anything; on a working agent it explains the one thing to do
  * first and offers that instead, because the server refuses to delete a live agent
  * (`agent_is_live`, D-527).
@@ -31,7 +31,9 @@ import { useActionFeedback, type FeedbackStatus } from "@/components/arc/feedbac
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
+import { ChipGroup } from "@/components/arc/chip-group";
 import { RowMenu } from "@/components/arc/menu";
+import { SearchField } from "@/components/arc/search-field";
 import {
   useAgentLifecycle,
   useAgentStats,
@@ -39,6 +41,7 @@ import {
   type Agent,
   type AgentStats,
 } from "@/lib/api/agents";
+import { useAgentsToday, type AgentToday } from "@/lib/api/analytics";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useAccountReadiness, type AccountReadiness } from "@/lib/api/readiness";
 import { agentOwnTier } from "@/lib/api/llmModels";
@@ -53,12 +56,51 @@ import { ReadinessScore } from "./AgentReadiness";
 /** The roster limit (`agents/roster.AGENT_ROSTER_LIMIT`): every listed agent gets its score. */
 const ROSTER_LIMIT = 200;
 
+/** Above this many agents the list gets a search box and the state chips. */
+export const FIND_FROM = 5;
+
+export type RosterState = "working" | "off" | "not_live";
+
+/** Working: live on the calling system. Off: published once, switched off now. Not live yet:
+ *  never published. The "is it live" test itself stays `agentGroup`'s. */
+export function rosterState(agent: Agent): RosterState {
+  if (agentGroup(agent) === "active") return "working";
+  return agent.published ? "off" : "not_live";
+}
+
+const STATE_LABELS: Record<RosterState, string> = {
+  working: "Working",
+  off: "Off",
+  not_live: "Not live yet",
+};
+
+/** "just now", "4 min ago", "2 h ago" today; the IST time and day further back. */
+export function sinceWords(at: string, now: number = Date.now()): string {
+  const minutes = Math.floor((now - new Date(at).getTime()) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)} h ago`;
+  return formatIST(at);
+}
+
+/** "Today: 12 calls · 3 interested", IST. An agent absent from the read had none today. */
+export function todayWords(row: AgentToday | undefined): string {
+  const calls = row?.calls ?? 0;
+  const interested = row?.interested ?? 0;
+  return `Today: ${formatCount(calls)} ${calls === 1 ? "call" : "calls"} · ${formatCount(interested)} interested`;
+}
+
 export function Roster({ agents, slug }: { agents: Agent[]; slug: string }) {
   const { href } = useClientRealm();
   const session = useClientSession();
   // A separate request over `calls`, the biggest table a tenant owns: the list paints first
   // and a row simply carries no activity line until its figures exist — never a zero.
   const stats = useAgentStats(session);
+  // Today's line is a third read; until it arrives, or if it fails, a row shows the lifetime
+  // line instead, never a "Today: 0" it does not know.
+  const today = useAgentsToday(session);
+  const [query, setQuery] = useState("");
+  const [state, setState] = useState<RosterState | null>(null);
   // Like the figures: a row whose score has not arrived (or failed) shows none, never a 0.
   const readiness = useAccountReadiness(session, ROSTER_LIMIT);
   // The list, not the row or its dialog, holds the delete: the move's refresh is awaited, so
@@ -97,16 +139,61 @@ export function Roster({ agents, slug }: { agents: Agent[]; slug: string }) {
     ...agents.filter((agent) => agentGroup(agent) === "active"),
     ...agents.filter((agent) => agentGroup(agent) !== "active"),
   ];
+  const finding = agents.length > FIND_FROM;
+  const needle = query.trim().toLocaleLowerCase();
+  const shown = finding
+    ? ordered.filter(
+        (agent) =>
+          (state === null || rosterState(agent) === state) &&
+          (needle === "" || agent.name.toLocaleLowerCase().includes(needle)),
+      )
+    : ordered;
+  const counts = (Object.keys(STATE_LABELS) as RosterState[]).map((key) => ({
+    value: key,
+    label: `${STATE_LABELS[key]} ${formatCount(agents.filter((agent) => rosterState(agent) === key).length)}`,
+  }));
   return (
     <>
-      <AgentList
-        rows={ordered}
-        slug={slug}
-        stats={stats.data}
-        readiness={readiness.data}
-        label="Your agents"
-        onDelete={askToDelete}
-      />
+      {finding && (
+        <div className="mb-3 flex flex-wrap items-center gap-3">
+          <SearchField
+            label="Find an agent"
+            hideLabel
+            placeholder="Find an agent"
+            value={query}
+            onValueChange={setQuery}
+            className="w-full sm:w-64"
+          />
+          <ChipGroup
+            mode="single"
+            label="Show agents by state"
+            allLabel="All"
+            chips={counts}
+            value={state}
+            onChange={(next) => setState((next as RosterState | null) ?? null)}
+          />
+        </div>
+      )}
+      {shown.length === 0 ? (
+        <EmptyState
+          variant="filtered"
+          message="No agent matches."
+          onClear={() => {
+            setQuery("");
+            setState(null);
+          }}
+        />
+      ) : (
+        <AgentList
+          rows={shown}
+          slug={slug}
+          stats={stats.data}
+          today={today.data?.agents}
+          readiness={readiness.data}
+          label="Your agents"
+          onDelete={askToDelete}
+        />
+      )}
       {asking && target !== null && (
         <DeleteDialog
           // The roster's current copy of the agent, so a refetch while the dialog is open
@@ -148,6 +235,7 @@ function AgentList({
   rows,
   slug,
   stats,
+  today,
   readiness,
   label,
   archived = false,
@@ -156,6 +244,8 @@ function AgentList({
   rows: Agent[];
   slug: string;
   stats: AgentStats[] | undefined;
+  /** Absent on the deleted list, and until (or unless) today's read arrives. */
+  today?: AgentToday[];
   /** Absent on the deleted list, which is not being made ready. */
   readiness?: AccountReadiness;
   label: string;
@@ -178,6 +268,7 @@ function AgentList({
           // `find`, not an index keyed by server ids: a keyed object inherits
           // `Object.prototype` (src/lib/lookup.ts), and the roster is bounded at 200 rows.
           stats={stats?.find((row) => row.agent_id === agent.id)}
+          today={today === undefined ? undefined : { row: today.find((row) => row.agent_id === agent.id) }}
           score={readiness?.agents.find((row) => row.agent_id === agent.id)?.score}
         />
       ))}
@@ -189,6 +280,7 @@ function AgentRow({
   agent,
   slug,
   stats,
+  today,
   score,
   index,
   onDelete,
@@ -196,6 +288,8 @@ function AgentRow({
   agent: Agent;
   slug: string;
   stats: AgentStats | undefined;
+  /** Present once today's read has arrived; `row` is absent for an agent with no call today. */
+  today?: { row: AgentToday | undefined };
   score?: number;
   index: number;
   onDelete?: (agent: Agent) => void;
@@ -242,11 +336,18 @@ function AgentRow({
               </>
             )}
           </span>
-          {stats && (
-            <span className="block text-meta text-ink-faint">
-              {formatCount(stats.calls_total)} {stats.calls_total === 1 ? "call" : "calls"}
-              {stats.last_call_at !== null && <> · last {formatIST(stats.last_call_at)}</>}
+          {today ? (
+            <span className="block text-meta text-ink-muted">
+              {todayWords(today.row)}
+              {stats?.last_call_at ? <> · last {sinceWords(stats.last_call_at)}</> : null}
             </span>
+          ) : (
+            stats && (
+              <span className="block text-meta text-ink-faint">
+                {formatCount(stats.calls_total)} {stats.calls_total === 1 ? "call" : "calls"}
+                {stats.last_call_at !== null && <> · last {formatIST(stats.last_call_at)}</>}
+              </span>
+            )
           )}
           {agent.archived_at !== null && (
             <span className="block text-xs text-ink-faint">Deleted {formatIST(agent.archived_at)}</span>
@@ -258,6 +359,14 @@ function AgentRow({
           <LiveBadge agent={agent} />
         </span>
       </Link>
+      {onDelete && (
+        <Link
+          href={href(`/c/${slug}/agents/${agent.id}?section=training`)}
+          className="shrink-0 rounded-md px-2 py-1 text-meta font-medium text-ink underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        >
+          Try it
+        </Link>
+      )}
       {onDelete && (
         <RowMenu
           label={agent.name}

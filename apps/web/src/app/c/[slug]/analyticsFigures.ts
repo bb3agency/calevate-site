@@ -1,7 +1,7 @@
 import type { StatItem } from "@/components/arc/stats-band";
 import type { MetricDelta } from "@/components/console/metric";
 import { formatDateShort } from "@/components/arc/ist-dates";
-import { formatCount, formatDecimal, formatDuration, formatPercent } from "@/components/ui";
+import { formatCount, formatDecimal, formatDuration, formatINR, formatPercent } from "@/components/ui";
 import type { Stats, StatsMetric } from "@/lib/api/analytics";
 import { leadWords, type BusinessCapabilities } from "@/lib/businessCapabilities";
 
@@ -15,6 +15,8 @@ const LABELS: Record<MetricKey, string> = {
   hot_leads: "Reached a goal",
   avg_duration_s: "Average call length",
   talk_minutes: "Talk time",
+  interested_rate_pct: "Interested rate",
+  spent_inr: "Spent",
 };
 
 /**
@@ -42,6 +44,8 @@ const HINTS: Partial<Record<MetricKey, string>> = {
   hot_leads: "People whose call ended on a goal you set",
   avg_duration_s: "Completed calls",
   talk_minutes: "Minutes spent talking on answered calls",
+  interested_rate_pct: "Of the people who answered",
+  spent_inr: "What left your wallet",
 };
 
 /** "24 Oct" from an IST calendar day "2026-10-24", read and never re-parsed as an instant. */
@@ -54,7 +58,10 @@ export function statValue(metric: StatsMetric): string {
   if (metric.value === null) return "—";
   switch (metric.key) {
     case "answer_rate_pct":
+    case "interested_rate_pct":
       return formatPercent(metric.value);
+    case "spent_inr":
+      return formatINR(metric.value);
     case "avg_duration_s":
       return formatDuration(Math.round(Number(metric.value)));
     case "talk_minutes":
@@ -70,7 +77,7 @@ export function statValue(metric: StatsMetric): string {
  * own `change_pct`. Colour follows `higher_is_better`, never the sign alone.
  */
 export function statDelta(metric: StatsMetric, context: string): MetricDelta | undefined {
-  if (metric.key === "answer_rate_pct") {
+  if (metric.key === "answer_rate_pct" || metric.key === "interested_rate_pct") {
     if (metric.value === null || metric.previous === null) return undefined;
     const points = Math.round((Number(metric.value) - Number(metric.previous)) * 10) / 10;
     return delta(points, `${formatDecimal(Math.abs(points))} ${Math.abs(points) === 1 ? "point" : "points"}`, metric, context);
@@ -85,7 +92,12 @@ function delta(change: number, magnitude: string, metric: StatsMetric, context: 
   return {
     text: direction === "flat" ? "No change" : `${direction === "up" ? "+" : "−"}${magnitude}`,
     direction,
-    good: direction === "flat" ? undefined : (direction === "up") === metric.higher_is_better,
+    // Spend is neither good nor bad news on its own (more calls cost more), so it is not
+    // coloured; the server marks it `higher_is_better: false` only to say a rise is no win.
+    good:
+      direction === "flat" || metric.key === "spent_inr"
+        ? undefined
+        : (direction === "up") === metric.higher_is_better,
     context,
   };
 }

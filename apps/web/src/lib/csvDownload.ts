@@ -29,3 +29,15 @@ export function saveCsv(csv: string, basename: string): void {
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
+
+/** One CSV cell. A value a spreadsheet would run as a formula is prefixed with `'`, as the
+ *  server's exports do (`core/spreadsheet_safety.py`), and quoting follows RFC 4180. */
+export function csvCell(value: string): string {
+  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+}
+
+/** A header row and its rows as one CSV text, for a table a screen already holds. */
+export function tableCsv(headers: readonly string[], rows: readonly (readonly string[])[]): string {
+  return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
+}
