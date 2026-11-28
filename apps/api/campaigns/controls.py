@@ -58,6 +58,7 @@ from apps.api.core.logging import get_logger
 from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
 from apps.api.db.transition import transition_status
+from apps.api.integrations import events as integration_events
 
 log = get_logger(__name__)
 
@@ -357,6 +358,9 @@ async def stop_campaign(session: AsyncSession, *, campaign_id: UUID) -> bool:
             session, tenant_id=UUID(str(tenant_id)), campaign_id=campaign_id
         )
         await end_campaign_agent(session, campaign_id=campaign_id)
+        await integration_events.emit_campaign_status_changed(
+            session, campaign_ids=[campaign_id], change="stopped"
+        )
     return moved
 
 
@@ -636,6 +640,9 @@ async def resume_campaigns_after_credit(session: AsyncSession, *, tenant_id: UUI
         )
     ).all()
     resumed = [UUID(str(r[0])) for r in rows]
+    await integration_events.emit_campaign_status_changed(
+        session, campaign_ids=resumed, change="resumed", reason="credit_added"
+    )
     for campaign_id in resumed:
         await write_audit(
             session,

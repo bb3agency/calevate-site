@@ -524,6 +524,18 @@ async def record_call_optout(
     evidence_written = written is not None
 
     if evidence_written:
+        # D-1049. Imported here: `integrations` reaches `compliance` at import time.
+        from apps.api.integrations.events import emit_consent_changed
+
+        await emit_consent_changed(
+            session,
+            tenant_id=tenant_id,
+            phone=phone_e164,
+            purpose=OPTOUT_PURPOSE,
+            status="withdrawn",
+            source=OPTOUT_CONSENT_SOURCE,
+            call_id=call_id,
+        )
         # Audited once per opt-out, not once per replay: the audit chain is a record of
         # things that happened, and a replay is not a second request from the caller.
         await write_audit(

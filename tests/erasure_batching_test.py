@@ -118,6 +118,7 @@ def test_the_unindexable_arms_are_the_batched_ones() -> None:
     assert sorted(digit_matchers) == [
         "_COPILOT_MEMORY_SUBJECT_SQL",
         "_COPILOT_TURN_SUBJECT_SQL",
+        "_INTEGRATION_EVENTS_SUBJECT_SQL",
         "_OUTBOX_SUBJECT_SQL",
     ]
     assert all("LIMIT :batch" in getattr(retention, name) for name in digit_matchers)

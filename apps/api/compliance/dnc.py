@@ -214,6 +214,12 @@ async def add_numbers(
             ],
         )
         added = rowcount_of(result)
+        # D-1049: the client's CRM hears of each number, in this transaction. `fresh`, as
+        # the recall below: a racing request that inserted one first sends it a second time,
+        # which a receiver deduplicating on the number absorbs.
+        from apps.api.integrations.events import emit_dnc_added
+
+        await emit_dnc_added(session, tenant_id=tenant_id, phones=fresh, source=source)
         # D-428(b): the suppression is not honoured until the dials the vendor is
         # ALREADY holding are pulled back. Same transaction as the insert above, so the
         # two share a fate. `fresh` only — a re-import of an unchanged list enqueues

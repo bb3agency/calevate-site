@@ -363,6 +363,10 @@ TENANT_TABLES = [
     "processor_erasure_tasks",
     "inbound_webhooks",
     "outbound_webhooks",
+    # The pull feed (D-1049): one row per event at fan-out, deleted after 30 days and by
+    # erasure; and one durable position per API key reading it.
+    "integration_events",
+    "integration_event_cursors",
     "kb_sources",
     "kb_documents",
     # The uploaded original behind a knowledge source version (D-534, migration

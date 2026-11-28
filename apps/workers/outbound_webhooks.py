@@ -63,6 +63,7 @@ from apps.api.core.queue import enqueue, job_id_for, job_try
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.integrations import service
+from apps.api.integrations.breaker import HELD
 from apps.api.reliability.service import outbox_message_id
 from apps.workers import leadsquared_sync, sheets_sync, storage
 
@@ -122,6 +123,8 @@ async def _deliver_to_endpoint(
     delivery_id: UUID,
     attempt: int,
     payload_occurred_at: Any,
+    event_id: Any = None,
+    test: bool = False,
 ) -> service.DeliveryResult:
     """One attempt at one endpoint, whatever kind it is.
 
@@ -164,6 +167,8 @@ async def _deliver_to_endpoint(
             delivery_id=delivery_id,
             data=body,
             occurred_at=occurred_at,
+            event_id=event_id,
+            test=test,
         )
         return await service.deliver(
             url=str(endpoint["url"]),
@@ -263,6 +268,8 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
     # The outbox message holding this body, recorded so a later retry can re-read it.
     # None for a sweep-run attempt, whose row already names it.
     message_id = outbox_message_id(JOB_NAME, ctx.get("job_id"))
+    # A test delivery (D-1049, `events.queue_test_delivery`): made-up data, one attempt.
+    is_test = bool(payload.get("test"))
 
     # ── 1. READ, and close. ────────────────────────────────────────────────────────
     #
@@ -284,7 +291,7 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
             _kind_of(endpoint) == service.SHEET_KIND
             and await service.delivery_status(session, delivery_id) == "delivered"
         )
-        if endpoint is not None and not already_delivered:
+        if endpoint is not None and not already_delivered and not is_test:
             data = await service.with_delivery_time_fields(
                 session, endpoint=endpoint, event=event, data=data
             )
@@ -300,8 +307,38 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
                 status="skipped",
                 attempts=attempt,
                 status_code=None,
+                is_test=is_test,
             )
         return "endpoint_inactive"
+
+    if is_test:
+        return await _deliver_test(
+            endpoint=endpoint,
+            tenant_id=tenant_id,
+            event=event,
+            data=data,
+            delivery_id=delivery_id,
+            message_id=message_id,
+            occurred_at=payload.get("occurred_at"),
+        )
+
+    if endpoint.get("paused"):
+        # The breaker paused this endpoint (D-1049, `integrations/breaker.py`): kept for
+        # Resume, which replays it in order, rather than sent to a receiver that has failed
+        # for three days. Not an attempt, so the count stays at the attempts made.
+        async with tenant_session(tenant_id) as session:
+            await service.record_delivery(
+                session,
+                delivery_id=delivery_id,
+                endpoint_id=endpoint_id,
+                event=event,
+                status=HELD,
+                attempts=attempt - 1,
+                status_code=None,
+                reason="endpoint_paused",
+                outbox_message_id=message_id,
+            )
+        return "held"
 
     if already_delivered:
         # A sheet cannot deduplicate for us and a duplicate row in a document a human is
@@ -356,6 +393,7 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
         delivery_id=delivery_id,
         attempt=attempt,
         payload_occurred_at=payload.get("occurred_at"),
+        event_id=payload.get("event_id"),
     )
     # Object storage is a network round trip of its own, and it is best-effort by
     # design — it belongs on this side of the session boundary for the same reason the
@@ -473,6 +511,47 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
     if transient:
         return f"exhausted after {attempt}"
     return f"rejected {result.status_code if result.status_code is not None else result.error}"
+
+
+async def _deliver_test(
+    *,
+    endpoint: dict[str, Any],
+    tenant_id: UUID,
+    event: str,
+    data: dict[str, Any],
+    delivery_id: UUID,
+    message_id: UUID | None,
+    occurred_at: Any,
+) -> str:
+    """One signed test POST (D-1049). Made-up data, so no body is retained (it names no
+    data subject), no retry is scheduled (the owner is watching for the answer now, and
+    will press the button again) and no alert is raised. Recorded with `is_test` so the
+    log shows it as a test and the breaker never counts it."""
+    result = await _deliver_to_endpoint(
+        endpoint=endpoint,
+        tenant_id=tenant_id,
+        event=event,
+        data=data,
+        delivery_id=delivery_id,
+        attempt=1,
+        payload_occurred_at=occurred_at,
+        test=True,
+    )
+    async with tenant_session(tenant_id) as session:
+        await service.record_delivery(
+            session,
+            delivery_id=delivery_id,
+            endpoint_id=UUID(str(endpoint["id"])),
+            event=event,
+            status="delivered" if result.delivered else "failed",
+            attempts=1,
+            status_code=result.status_code,
+            channel=result.channel,
+            reason=None if result.delivered else result.error,
+            outbox_message_id=message_id,
+            is_test=True,
+        )
+    return f"test {'delivered' if result.delivered else 'failed'}"
 
 
 async def retry_outbound_deliveries(ctx: dict[str, Any]) -> str:

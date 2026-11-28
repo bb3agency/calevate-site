@@ -22837,17 +22837,35 @@
       "CreateEndpointIn": {
         "additionalProperties": false,
         "properties": {
+          "auto_subscribe_new_events": {
+            "default": false,
+            "title": "Auto Subscribe New Events",
+            "type": "boolean"
+          },
           "events": {
             "items": {
-              "enum": [
-                "lead.created",
-                "lead.updated",
-                "call.completed",
-                "call.updated",
-                "call.recording_ready",
-                "campaign.completed"
-              ],
-              "type": "string"
+              "anyOf": [
+                {
+                  "enum": [
+                    "lead.created",
+                    "lead.updated",
+                    "call.completed",
+                    "call.updated",
+                    "call.recording_ready",
+                    "campaign.completed",
+                    "call.not_connected",
+                    "call.inbound_missed",
+                    "campaign.status_changed",
+                    "lead.consent_changed",
+                    "dnc.added"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "const": "*",
+                  "type": "string"
+                }
+              ]
             },
             "minItems": 1,
             "title": "Events",
@@ -22886,6 +22904,11 @@
       "CreateEndpointOut": {
         "additionalProperties": false,
         "properties": {
+          "auto_subscribe_new_events": {
+            "default": false,
+            "title": "Auto Subscribe New Events",
+            "type": "boolean"
+          },
           "events": {
             "items": {
               "type": "string"
@@ -23143,7 +23166,12 @@
                 "call.completed",
                 "call.updated",
                 "call.recording_ready",
-                "campaign.completed"
+                "campaign.completed",
+                "call.not_connected",
+                "call.inbound_missed",
+                "campaign.status_changed",
+                "lead.consent_changed",
+                "dnc.added"
               ],
               "type": "string"
             },
@@ -24902,6 +24930,18 @@
             "title": "Attempts",
             "type": "integer"
           },
+          "endpoint_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endpoint Id"
+          },
           "event_type": {
             "anyOf": [
               {
@@ -24922,6 +24962,11 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "is_test": {
+            "default": false,
+            "title": "Is Test",
+            "type": "boolean"
           },
           "last_at": {
             "format": "date-time",
@@ -26347,6 +26392,11 @@
             "title": "Active",
             "type": "boolean"
           },
+          "auto_subscribe_new_events": {
+            "default": false,
+            "title": "Auto Subscribe New Events",
+            "type": "boolean"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -26358,6 +26408,18 @@
             },
             "title": "Events",
             "type": "array"
+          },
+          "failing_since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failing Since"
           },
           "id": {
             "format": "uuid",
@@ -26383,6 +26445,23 @@
           "kind": {
             "title": "Kind",
             "type": "string"
+          },
+          "managed_by_api_key": {
+            "default": false,
+            "title": "Managed By Api Key",
+            "type": "boolean"
+          },
+          "paused_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paused At"
           },
           "previous_secret_expires_at": {
             "anyOf": [
@@ -26433,6 +26512,83 @@
           "created_at"
         ],
         "title": "EndpointOut",
+        "type": "object"
+      },
+      "EndpointResumeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "replayed": {
+            "title": "Replayed",
+            "type": "integer"
+          },
+          "resumed": {
+            "title": "Resumed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "resumed",
+          "replayed"
+        ],
+        "title": "EndpointResumeOut",
+        "type": "object"
+      },
+      "EndpointTestIn": {
+        "additionalProperties": false,
+        "properties": {
+          "event": {
+            "anyOf": [
+              {
+                "enum": [
+                  "lead.created",
+                  "lead.updated",
+                  "call.completed",
+                  "call.updated",
+                  "call.recording_ready",
+                  "campaign.completed",
+                  "call.not_connected",
+                  "call.inbound_missed",
+                  "campaign.status_changed",
+                  "lead.consent_changed",
+                  "dnc.added"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event"
+          }
+        },
+        "title": "EndpointTestIn",
+        "type": "object"
+      },
+      "EndpointTestOut": {
+        "additionalProperties": false,
+        "description": "A test delivery accepted: it shows in the delivery log as a test within seconds.",
+        "properties": {
+          "delivery_id": {
+            "format": "uuid",
+            "title": "Delivery Id",
+            "type": "string"
+          },
+          "event": {
+            "title": "Event",
+            "type": "string"
+          }
+        },
+        "required": [
+          "delivery_id",
+          "event"
+        ],
+        "title": "EndpointTestOut",
         "type": "object"
       },
       "EngineAgentAllowanceFull": {
@@ -68209,17 +68365,41 @@
         "additionalProperties": false,
         "description": "The whole set of choices an endpoint can change after it exists. The destination is\nnot one of them: pointing lead data somewhere new is a new endpoint, behind its code.",
         "properties": {
+          "auto_subscribe_new_events": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Subscribe New Events"
+          },
           "events": {
             "items": {
-              "enum": [
-                "lead.created",
-                "lead.updated",
-                "call.completed",
-                "call.updated",
-                "call.recording_ready",
-                "campaign.completed"
-              ],
-              "type": "string"
+              "anyOf": [
+                {
+                  "enum": [
+                    "lead.created",
+                    "lead.updated",
+                    "call.completed",
+                    "call.updated",
+                    "call.recording_ready",
+                    "campaign.completed",
+                    "call.not_connected",
+                    "call.inbound_missed",
+                    "campaign.status_changed",
+                    "lead.consent_changed",
+                    "dnc.added"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "const": "*",
+                  "type": "string"
+                }
+              ]
             },
             "minItems": 1,
             "title": "Events",
@@ -104240,6 +104420,75 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "in": "query",
+            "name": "endpoint_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Endpoint Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "delivered",
+                    "retrying",
+                    "failed",
+                    "skipped",
+                    "held"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "event",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "lead.created",
+                    "lead.updated",
+                    "call.completed",
+                    "call.updated",
+                    "call.recording_ready",
+                    "campaign.completed",
+                    "call.not_connected",
+                    "call.inbound_missed",
+                    "campaign.status_changed",
+                    "lead.consent_changed",
+                    "dnc.added"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Event"
+            }
           }
         ],
         "responses": {
@@ -104667,6 +104916,47 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/integrations/endpoints/{endpoint_id}/resume": {
+      "post": {
+        "description": "An endpoint whose every delivery failed for three days is paused, not deactivated: what it would have been sent is kept (`status: held`). Resume sends every held delivery and every delivery that failed since the failures began, oldest first, each under its own envelope `id`. Idempotent: an endpoint that is not paused answers `resumed: false`. 422 `endpoint_inactive` for a deactivated endpoint.",
+        "operationId": "resume_endpoint_v1_integrations_endpoints__endpoint_id__resume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "endpoint_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Endpoint Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndpointResumeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Resume a paused endpoint and send what it missed, oldest first",
+        "tags": [
+          "integrations"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/integrations/endpoints/{endpoint_id}/rotate-secret": {
       "post": {
         "description": "Replace a webhook endpoint's signing secret in place. The new secret is returned once. Until `previous_secret_expires_at` every delivery carries two `v1` signatures, one per secret, so your receiver keeps verifying while you deploy the new one (`grace_minutes`, default and maximum 1440). Send `grace_minutes: 0` to stop the old secret signing immediately. 409 for a Google Sheets destination or a deactivated endpoint.",
@@ -104712,6 +105002,57 @@
           }
         },
         "summary": "Issue a new signing secret, with the old one still signing for a stated window",
+        "tags": [
+          "integrations"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/integrations/endpoints/{endpoint_id}/test": {
+      "post": {
+        "description": "Queue one signed delivery to a webhook endpoint, in the shape of `event` (or the endpoint's first subscription), with made-up data and `\"test\": true` in the body. It is tried once and shows in `GET /v1/integrations/deliveries` with `is_test: true`. Works while the endpoint is paused, so a fix can be checked before Resume. 422 `endpoint_test_webhook_only` for a Google Sheet or LeadSquared, `endpoint_inactive` for a deactivated endpoint.",
+        "operationId": "send_test_delivery_v1_integrations_endpoints__endpoint_id__test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "endpoint_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Endpoint Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EndpointTestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndpointTestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Send a signed test delivery with made-up data",
         "tags": [
           "integrations"
         ],

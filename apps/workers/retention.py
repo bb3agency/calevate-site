@@ -2793,6 +2793,51 @@ async def _erase_outbox_messages(
     )
 
 
+# The events feed's copies of a subject (D-1049): by their lead or call, or by their number
+# anywhere in the body (the last ten digits, as `_OUTBOX_SUBJECT_SQL`).
+_INTEGRATION_EVENTS_SUBJECT_SQL = """
+DELETE FROM integration_events WHERE id IN (
+  SELECT id FROM integration_events
+  WHERE strpos(regexp_replace(data::text, '[^0-9]', '', 'g'), :digits) > 0
+     OR lead_id = ANY(CAST(:lead_ids AS uuid[]))
+     OR call_id = ANY(CAST(:call_ids AS uuid[]))
+  LIMIT :batch)
+"""
+_INTEGRATION_EVENTS_TENANT_SQL = (
+    "DELETE FROM integration_events WHERE id IN (SELECT id FROM integration_events LIMIT :batch)"
+)
+#: Positions, not personal data, but an account erased whole keeps nothing.
+_INTEGRATION_CURSORS_TENANT_SQL = "DELETE FROM integration_event_cursors"
+
+
+async def _erase_integration_events(
+    session: AsyncSession,
+    *,
+    phone: str | None = None,
+    lead_ids: Sequence[UUID] = (),
+    call_ids: Sequence[UUID] = (),
+) -> int:
+    """The events feed's copies of this subject (D-1049), the outbox arm's sibling: the
+    same digits rule over the body, plus the lead and call columns. `phone=None` is the
+    tenant path, every event and every cursor of the account. Counts only."""
+    if phone is None:
+        erased = await _delete_in_batches(session, _INTEGRATION_EVENTS_TENANT_SQL, {})
+        await session.execute(text(_INTEGRATION_CURSORS_TENANT_SQL))
+        return erased
+    digits = "".join(character for character in phone if character.isdigit())[-10:]
+    if not digits:
+        return 0
+    return await _delete_in_batches(
+        session,
+        _INTEGRATION_EVENTS_SUBJECT_SQL,
+        {
+            "digits": digits,
+            "lead_ids": [str(lead) for lead in lead_ids],
+            "call_ids": [str(call) for call in call_ids],
+        },
+    )
+
+
 async def _search_knowledge_base(session: AsyncSession, *, phone: str) -> int:
     """How many knowledge documents mention this number. Reads; never writes.
 
@@ -3164,6 +3209,10 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
             phone=phone,
             lead_ids=[*{*leads, *linked_leads}],
             call_ids=list(calls),
+        )
+        # THE EVENTS FEED (D-1049): the same events, kept 30 days for a reader that pulls.
+        await _erase_integration_events(
+            session, phone=phone, lead_ids=[*{*leads, *linked_leads}], call_ids=list(calls)
         )
 
         # THE DIALS ALREADY BOOKED AT THE VOICE PLATFORM to this person: `check_dispatch`
@@ -3905,6 +3954,8 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         counts["outbox_messages_erased"] = await _erase_outbox_messages(
             session, tenant_id=tenant_id
         )
+        # The events feed and its cursors (D-1049), unconditional for the reason above.
+        counts["integration_events_erased"] = await _erase_integration_events(session)
         # WHAT THE COPILOT REMEMBERED (migration d4a9c17e6b02). UNPAGED and UNCONDITIONAL,
         # and both halves are the decision.
         #

@@ -1016,6 +1016,8 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ),
     ("DELETE", "/v1/integrations/endpoints/{endpoint_id}", {}, {}),
     ("POST", "/v1/integrations/endpoints/{endpoint_id}/rotate-secret", {}, {}),
+    ("POST", "/v1/integrations/endpoints/{endpoint_id}/test", {}, {}),
+    ("POST", "/v1/integrations/endpoints/{endpoint_id}/resume", {}, {}),
     ("PATCH", "/v1/integrations/endpoints/{endpoint_id}", {"events": ["lead.created"]}, {}),
     ("DELETE", "/v1/invitations/{invitation_id}", {}, {}),
     ("POST", "/v1/invitations/{invitation_id}/resend", {}, {}),

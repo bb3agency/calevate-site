@@ -1,7 +1,12 @@
 "use client";
 
-import { FIELD, FIELD_LABEL } from "@/components/ui";
-import { EVENT_LABELS, eventLabel, type OutboundEvent } from "@/lib/api/integrations";
+import { FIELD, FIELD_LABEL, SECONDARY_BUTTON_SM } from "@/components/ui";
+import {
+  EVENT_LABELS,
+  WEBHOOK_ONLY_EVENTS,
+  eventLabel,
+  type OutboundEvent,
+} from "@/lib/api/integrations";
 import { hasKey } from "@/lib/lookup";
 
 /**
@@ -42,9 +47,26 @@ export function EventChoices({
   disabled: boolean;
 }) {
   const unknown = catalogue.filter((name) => !hasKey(EVENT_LABELS, name));
+  const offered = catalogue.filter((name): name is OutboundEvent => hasKey(EVENT_LABELS, name));
+  // Not the recording event: it needs its own opt-in, and ticking it alone is refused.
+  const missing = offered.filter(
+    (name) => !selected.includes(name) && !WEBHOOK_ONLY_EVENTS.includes(name),
+  );
   return (
     <fieldset className="space-y-1.5">
       <legend className={FIELD_LABEL}>Send when…</legend>
+      {/* Ticks every event offered now. A later event is not ticked for you: the
+          destination has never seen its shape (D-1049). */}
+      {missing.length > 1 && (
+        <button
+          type="button"
+          className={SECONDARY_BUTTON_SM}
+          disabled={disabled}
+          onClick={() => missing.forEach((name) => onToggle(name, true))}
+        >
+          Tick all
+        </button>
+      )}
       {catalogue.filter((name) => hasKey(EVENT_LABELS, name)).map((name) => (
         <label key={name} className="flex items-center gap-2 text-body">
           <input

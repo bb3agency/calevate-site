@@ -48,8 +48,9 @@ from apps.api.core.rbac import permission_meta
 from apps.api.core.schemas import Strict
 from apps.api.core.stepup import ClientActionCode, client_confirmation
 from apps.api.db.base import uuid7
+from apps.api.integrations import breaker, service
+from apps.api.integrations import events as integration_events
 from apps.api.integrations import leadsquared as lsq
-from apps.api.integrations import service
 from apps.api.integrations.service import (
     ENDPOINT_OPT_IN_VERB,
     EVENT_TYPES,
@@ -78,7 +79,16 @@ EventName = Literal[
     "call.updated",
     "call.recording_ready",
     "campaign.completed",
+    "call.not_connected",
+    "call.inbound_missed",
+    "campaign.status_changed",
+    "lead.consent_changed",
+    "dnc.added",
 ]
+#: A webhook subscription: named events, or `*` for every event there is now (D-1049).
+EventChoice = EventName | Literal["*"]
+#: `webhook_deliveries.status` for an outbound delivery (WEBHOOKS §1.5).
+DeliveryStatus = Literal["delivered", "retrying", "failed", "skipped", "held"]
 
 # The two audit actions this module writes. NAMED rather than typed twice: the disable
 # action was a bare literal here and a second bare literal in the test that asserts it,
@@ -161,7 +171,9 @@ class CreateEndpointIn(Strict):
     # it needs a DNS lookup and because the same call has to be repeated at delivery
     # time, where there is no request body to validate.
     url: HttpUrl
-    events: list[EventName] = Field(min_length=1)
+    #: `["*"]` is every event there is now; add `auto_subscribe_new_events` for later ones.
+    events: list[EventChoice] = Field(min_length=1)
+    auto_subscribe_new_events: bool = False
     # `call.completed` opt-ins (docs/WEBHOOKS.md §1.2). All default OFF, so a request that
     # names none behaves exactly as before. Independent booleans rather than one enum
     # because a client can want the redacted transcript without the recording, or either
@@ -185,6 +197,7 @@ class CreateEndpointOut(Strict):
     include_recording_url: bool
     include_transcript: bool
     include_raw_transcript: bool
+    auto_subscribe_new_events: bool = False
     # Shown once, never again.
     secret: str
 
@@ -244,6 +257,14 @@ class EndpointOut(Strict):
     # Until when the secret a rotation replaced still signs alongside the current one;
     # None outside a rotation window (and on every sheets endpoint).
     previous_secret_expires_at: datetime | None = None
+    # Also sent the event types we add later (registered with `*`, D-1049).
+    auto_subscribe_new_events: bool = False
+    # Paused by the breaker after three days of failures; deliveries are held until Resume.
+    paused_at: datetime | None = None
+    # When the failing streak began; Resume also re-sends what failed since then.
+    failing_since: datetime | None = None
+    # Created by an API key through `/api/v1` rather than by a person.
+    managed_by_api_key: bool = False
 
 
 class DeliveryOut(Strict):
@@ -267,6 +288,10 @@ class DeliveryOut(Strict):
     # Whether "Send again" can work: a `failed` delivery to an active endpoint whose body
     # the outbox still holds (`service.resend_delivery` refuses the rest, each with a reason).
     resendable: bool = False
+    # A test delivery (`POST …/endpoints/{id}/test`): made-up data, tried once.
+    is_test: bool = False
+    # Which destination it was for, so a screen can group or filter by it.
+    endpoint_id: UUID | None = None
 
 
 class DeliveryResendOut(Strict):
@@ -367,7 +392,8 @@ async def _endpoint_rows(
                 "SELECT id, url, events, active, secret_ref, created_at, kind, "
                 "include_recording_url, include_transcript, include_raw_transcript, "
                 "CASE WHEN previous_secret_expires_at > now() THEN previous_secret_expires_at END, "
-                "mapping FROM outbound_webhooks " + tail
+                "mapping, auto_subscribe_new_events, paused_at, failing_since, "
+                "managed_by_key_id IS NOT NULL FROM outbound_webhooks " + tail
             ),
             params,
         )
@@ -386,6 +412,10 @@ async def _endpoint_rows(
             include_raw_phone=service.raw_phone_opted_in(r[11]),
             created_at=r[5],
             previous_secret_expires_at=r[10],
+            auto_subscribe_new_events=bool(r[12]),
+            paused_at=r[13],
+            failing_since=r[14],
+            managed_by_api_key=bool(r[15]),
         )
         for r in rows
     ]
@@ -438,6 +468,7 @@ async def create_endpoint(
         include_transcript=payload.include_transcript,
         include_raw_transcript=payload.include_raw_transcript,
         role=principal.role,
+        auto_subscribe_new_events=payload.auto_subscribe_new_events,
     )
     endpoint_id = created.id
     # AFTER the INSERT, deliberately: `write_audit` takes the chain's advisory lock and
@@ -460,7 +491,8 @@ async def create_endpoint(
             # and never one of their names. "Who pointed our leads outward, and where" is
             # the question this row exists to answer, and half of "where" is which events
             # start flowing. Sorted so two identical registrations record identically.
-            "events": ",".join(sorted(payload.events)),
+            "events": ",".join(sorted(created.events)),
+            "auto_subscribe_new_events": payload.auto_subscribe_new_events,
             # What this endpoint will be sent beyond the base body — part of "who pointed
             # our leads outward, and what did they arrange to send". The raw-transcript
             # switch especially, since it is the one this route gates on `calls:read_raw`.
@@ -472,10 +504,11 @@ async def create_endpoint(
     return CreateEndpointOut(
         id=endpoint_id,
         url=str(payload.url),
-        events=list(payload.events),
+        events=list(created.events),
         include_recording_url=payload.include_recording_url,
         include_transcript=payload.include_transcript,
         include_raw_transcript=payload.include_raw_transcript,
+        auto_subscribe_new_events=payload.auto_subscribe_new_events,
         secret=created.secret,
     )
 
@@ -484,13 +517,15 @@ class UpdateEndpointIn(Strict):
     """The whole set of choices an endpoint can change after it exists. The destination is
     not one of them: pointing lead data somewhere new is a new endpoint, behind its code."""
 
-    events: list[EventName] = Field(min_length=1)
+    events: list[EventChoice] = Field(min_length=1)
     include_recording_url: bool = False
     include_transcript: bool = False
     include_raw_transcript: bool = False
     # Left out (null) keeps the raw-phone opt-in as it is; false switches it off. It is
     # switched on with our team only, so true is accepted only where it is already on.
     include_raw_phone: bool | None = None
+    # Left out (null): kept while `events` is still `["*"]`, dropped otherwise.
+    auto_subscribe_new_events: bool | None = None
 
 
 @router.patch(
@@ -534,6 +569,7 @@ async def update_endpoint(
         include_raw_transcript=payload.include_raw_transcript,
         role=principal.role,
         include_raw_phone=payload.include_raw_phone,
+        auto_subscribe_new_events=payload.auto_subscribe_new_events,
     )
     if opens_call_content(
         before,
@@ -1026,6 +1062,90 @@ async def rotate_endpoint_secret(
     )
 
 
+class EndpointTestIn(Strict):
+    #: Which event's shape to send; left out, the endpoint's first subscription.
+    event: EventName | None = None
+
+
+class EndpointTestOut(Strict):
+    """A test delivery accepted: it shows in the delivery log as a test within seconds."""
+
+    delivery_id: UUID
+    event: str
+
+
+@router.post(
+    "/endpoints/{endpoint_id}/test",
+    status_code=202,
+    response_model=EndpointTestOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Send a signed test delivery with made-up data",
+    description=(
+        "Queue one signed delivery to a webhook endpoint, in the shape of `event` (or the "
+        'endpoint\'s first subscription), with made-up data and `"test": true` in the body. '
+        "It is tried once and shows in `GET /v1/integrations/deliveries` with "
+        "`is_test: true`. Works while the endpoint is paused, so a fix can be checked "
+        "before Resume. 422 `endpoint_test_webhook_only` for a Google Sheet or LeadSquared, "
+        "`endpoint_inactive` for a deactivated endpoint."
+    ),
+)
+async def send_test_delivery(
+    endpoint_id: UUID,
+    payload: EndpointTestIn,
+    session: Session,
+    principal: EndpointOwner,
+) -> EndpointTestOut:
+    """Made-up data, so no code and no audit row: nothing of the account leaves it."""
+    assert principal.tenant_id is not None
+    delivery_id, event = await integration_events.queue_test_delivery(
+        session, tenant_id=principal.tenant_id, endpoint_id=endpoint_id, event=payload.event
+    )
+    return EndpointTestOut(delivery_id=delivery_id, event=event)
+
+
+class EndpointResumeOut(Strict):
+    id: UUID
+    #: False when it was not paused: nothing changed.
+    resumed: bool
+    #: Deliveries put back in the queue, oldest first.
+    replayed: int
+
+
+@router.post(
+    "/endpoints/{endpoint_id}/resume",
+    response_model=EndpointResumeOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Resume a paused endpoint and send what it missed, oldest first",
+    description=(
+        "An endpoint whose every delivery failed for three days is paused, not deactivated: "
+        "what it would have been sent is kept (`status: held`). Resume sends every held "
+        "delivery and every delivery that failed since the failures began, oldest first, "
+        "each under its own envelope `id`. Idempotent: an endpoint that is not paused "
+        "answers `resumed: false`. 422 `endpoint_inactive` for a deactivated endpoint."
+    ),
+)
+async def resume_endpoint(
+    endpoint_id: UUID,
+    session: Session,
+    request: Request,
+    principal: EndpointOwner,
+) -> EndpointResumeOut:
+    assert principal.tenant_id is not None
+    result = await breaker.resume_endpoint(session, endpoint_id=endpoint_id)
+    if result.resumed:
+        await write_audit(
+            session,
+            action=breaker.ENDPOINT_RESUMED,
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="outbound_webhook",
+            object_id=str(endpoint_id),
+            ip=client_request_ip(request),
+            summary={"replayed": result.replayed},
+        )
+    return EndpointResumeOut(id=endpoint_id, resumed=result.resumed, replayed=result.replayed)
+
+
 @router.post(
     "/deliveries/{delivery_id}/resend",
     status_code=202,
@@ -1075,6 +1195,10 @@ async def list_deliveries(
     # "did it reach my CRM?" is the question support is asked, and it was the one
     # view support could not open.
     _: Principal = Depends(requires("org:read")),
+    # Filters (D-1049). Each narrows; left out, the last deliveries of every kind.
+    endpoint_id: Annotated[UUID | None, Query()] = None,
+    status: Annotated[DeliveryStatus | None, Query()] = None,
+    event: Annotated[EventName | None, Query()] = None,
 ) -> list[DeliveryOut]:
     # `webhook_deliveries` is not tenant-RLS'd (engine webhooks arrive before tenant
     # resolution — see its model docstring), so this query is scoped by the tenant's
@@ -1088,14 +1212,24 @@ async def list_deliveries(
                 # subject's row id, and this endpoint is `org:read` — the raw body is
                 # two permissions further up.
                 "d.payload_ref IS NOT NULL, d.next_attempt_at, "
-                "(d.status = 'failed' AND w.active AND EXISTS (SELECT 1 FROM outbox_messages m "
-                "  WHERE m.id = d.outbox_message_id AND m.payload <> '{}'::jsonb)) "
+                "(d.status = 'failed' AND w.active AND NOT d.is_test "
+                "  AND EXISTS (SELECT 1 FROM outbox_messages m "
+                "  WHERE m.id = d.outbox_message_id AND m.payload <> '{}'::jsonb)), "
+                "d.is_test, d.endpoint_id "
                 "FROM webhook_deliveries d JOIN outbound_webhooks w ON w.id = d.endpoint_id "
                 "WHERE d.direction = 'out' "
                 "AND d.endpoint_id IN (SELECT id FROM outbound_webhooks) "
+                "AND (CAST(:endpoint AS uuid) IS NULL OR d.endpoint_id = CAST(:endpoint AS uuid)) "
+                "AND (CAST(:status AS text) IS NULL OR d.status = CAST(:status AS text)) "
+                "AND (CAST(:event AS text) IS NULL OR d.event_type = CAST(:event AS text)) "
                 "ORDER BY d.last_at DESC LIMIT :limit"
             ),
-            {"limit": min(limit, 200)},
+            {
+                "limit": min(limit, 200),
+                "endpoint": str(endpoint_id) if endpoint_id else None,
+                "status": status,
+                "event": event,
+            },
         )
     ).all()
     return [
@@ -1109,6 +1243,8 @@ async def list_deliveries(
             payload_stored=bool(r[6]),
             next_attempt_at=r[7],
             resendable=bool(r[8]),
+            is_test=bool(r[9]),
+            endpoint_id=r[10],
         )
         for r in rows
     ]

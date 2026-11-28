@@ -115,6 +115,7 @@ from apps.api.db.session import session_tenant, tenant_session
 from apps.api.db.transition import transition_status
 from apps.api.engine.dial_lines import outbound_line_pool
 from apps.api.ingest.service import normalize_phone
+from apps.api.integrations import events as integration_events
 from apps.api.legal.service import agreements_blocker
 from apps.api.tenancy.call_lines import read_call_lines
 from apps.api.tenancy.engine_workspace import engine_has_workspaces, resolve_workspace
@@ -1710,6 +1711,9 @@ async def launch_campaign(
     )
     if rowcount_of(result) == 0:
         raise await _why_not_launchable(session, campaign_id)
+    await integration_events.emit_campaign_status_changed(
+        session, campaign_ids=[campaign_id], change="started"
+    )
 
     dialable = (
         await session.execute(
@@ -1847,6 +1851,13 @@ async def set_campaign_status(
             ),
             {"id": campaign_id},
         )
+        return moved
+    # The client's CRM hears of the move in the same transaction (D-1049).
+    change = integration_events.change_for(to_status, from_statuses)
+    if change is not None:
+        await integration_events.emit_campaign_status_changed(
+            session, campaign_ids=[campaign_id], change=change
+        )
     return moved
 
 
@@ -1890,7 +1901,11 @@ async def pause_campaigns_for_maintenance(session: AsyncSession, *, window_id: U
             {"wid": window_id},
         )
     ).all()
-    return [row[0] for row in rows]
+    paused = [row[0] for row in rows]
+    await integration_events.emit_campaign_status_changed(
+        session, campaign_ids=paused, change="paused"
+    )
+    return paused
 
 
 async def resume_campaigns_after_maintenance(
@@ -1924,7 +1939,11 @@ async def resume_campaigns_after_maintenance(
             {"wid": window_id},
         )
     ).all()
-    return [row[0] for row in rows if row[1]]
+    resumed = [row[0] for row in rows if row[1]]
+    await integration_events.emit_campaign_status_changed(
+        session, campaign_ids=resumed, change="resumed", reason="maintenance_ended"
+    )
+    return resumed
 
 
 async def register_dlt_template(

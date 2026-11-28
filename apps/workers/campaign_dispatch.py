@@ -151,6 +151,7 @@ from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import enqueue, job_id_for
 from apps.api.core.redis import get_redis, release_lease
+from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.dial_lines import (
@@ -167,6 +168,7 @@ from apps.api.engine.vendor_http import (
     NUMBER_DAILY_LIMIT_CODE,
     EngineRejectedError,
 )
+from apps.api.integrations import events as integration_events
 from apps.api.integrations import service as integrations
 from apps.api.tenancy.call_lines import CALL_LINES_BUSY_RULE, read_call_lines
 
@@ -1422,6 +1424,13 @@ async def _settle_finished_campaign(
     if remaining:
         return False
     settled = await complete_or_rearm(session, campaign_id=campaign_id)
+    if settled is not None:
+        # D-1049, in the same transaction as the status write, as `campaign.completed` is.
+        await integration_events.emit_campaign_status_changed(
+            session,
+            campaign_ids=[campaign_id],
+            change="completed" if settled == "completed" else "run_finished",
+        )
     if settled == "completed":
         # IN THIS TRANSACTION, beside the status write that justifies it — the
         # transactional-outbox property (BACKEND-PATTERNS §4) that makes "the campaign
@@ -1780,7 +1789,7 @@ async def _refuse_contact(
         params["wait"] = wait_s
     else:
         settle = _SETTLE_REFUNDED
-    await session.execute(
+    result = await session.execute(
         text(
             f"UPDATE campaign_contacts SET {settle}, last_attempt_at = :prior_at, "
             "last_call_id = :prior_call, updated_at = now() "
@@ -1788,6 +1797,20 @@ async def _refuse_contact(
         ),
         params,
     )
+    # The CRM hears of a refusal it can act on (D-1049): the person is settled, or held to a
+    # stated time. A refusal about us goes back on the ladder and is not news downstream.
+    if rowcount_of(result) and settle in (_SETTLE_PERSON_REFUSED_UNDIALLED, _SETTLE_HOLD_WAIT):
+        await integration_events.emit_dial_refused(
+            session,
+            contact_id=contact_id,
+            rule=rule,
+            deferred=settle == _SETTLE_HOLD_WAIT,
+            opens_at=(
+                datetime.now(UTC) + timedelta(seconds=wait_s)
+                if settle == _SETTLE_HOLD_WAIT and wait_s is not None
+                else None
+            ),
+        )
 
 
 def _link_contact_to_call(

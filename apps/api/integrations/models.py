@@ -9,6 +9,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     ForeignKey,
@@ -117,6 +118,18 @@ class OutboundWebhook(PKMixin, TimestampMixin, Base):
     include_raw_transcript: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false"
     )
+    #: Registered with `*` and asked for event types added later as well (D-1049). Off,
+    #: `*` is the events that existed when the endpoint was saved.
+    auto_subscribe_new_events: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    #: The breaker (D-1049, `integrations/breaker.py`): set when every delivery failed for
+    #: 72 hours. Deliveries are held, not sent, until Resume clears it.
+    paused_at: Mapped[datetime | None] = mapped_column()
+    #: When the failing streak that paused it began; Resume also replays failures from then.
+    failing_since: Mapped[datetime | None] = mapped_column()
+    #: The API key that created this endpoint through `/api/v1`; NULL when a person did.
+    managed_by_key_id: Mapped[UUID | None] = mapped_column()
 
 
 class WebhookDelivery(PKMixin, Base):
@@ -187,6 +200,65 @@ class WebhookDelivery(PKMixin, Base):
     # outbox message whose payload is its body. NULL when nothing is waiting.
     next_attempt_at: Mapped[datetime | None] = mapped_column()
     outbox_message_id: Mapped[UUID | None] = mapped_column()
+    #: A test delivery (`POST /v1/integrations/endpoints/{id}/test`): synthetic data, one
+    #: attempt, never counted by the breaker.
+    is_test: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     first_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     last_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class IntegrationEvent(Base):
+    """One event as it left the fan-out, for the pull feed (D-1049, `integrations/feed.py`).
+
+    Holds the domain data before any endpoint's masking; the feed masks at read. Never
+    updated (trigger); deleted by the 30-day sweep and by an erasure, which is why it is
+    not an append-only ledger. `txid` orders the feed by commit visibility, see
+    `feed.VISIBLE_SQL`."""
+
+    __tablename__ = "integration_events"
+    __table_args__ = (
+        Index("ix_integration_events_feed", "tenant_id", "txid", "id"),
+        Index("ix_integration_events_created_at", "created_at"),
+        Index(
+            "ix_integration_events_lead_id",
+            "lead_id",
+            postgresql_where=text("lead_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_integration_events_call_id",
+            "call_id",
+            postgresql_where=text("call_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    event_type: Mapped[str] = mapped_column(Text, nullable=False)
+    data: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    lead_id: Mapped[UUID | None] = mapped_column()
+    call_id: Mapped[UUID | None] = mapped_column()
+    txid: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=text("(pg_current_xact_id()::text)::bigint")
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class IntegrationEventCursor(Base):
+    """One consumer's durable position in the feed (D-1049). `consumer_id` is the API key."""
+
+    __tablename__ = "integration_event_cursors"
+    __table_args__ = (
+        CheckConstraint("(after_txid IS NULL) = (after_event_id IS NULL)", name="position_paired"),
+    )
+
+    consumer_id: Mapped[UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    after_txid: Mapped[int | None] = mapped_column(BigInteger)
+    after_event_id: Mapped[UUID | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)

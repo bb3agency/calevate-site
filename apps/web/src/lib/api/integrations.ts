@@ -48,6 +48,11 @@ export const EVENT_LABELS: Record<OutboundEvent, string> = {
   "call.updated": "A finished call's outcome changes",
   "call.recording_ready": "A call recording is ready",
   "campaign.completed": "A campaign finishes",
+  "call.not_connected": "We could not reach someone",
+  "call.inbound_missed": "A call to your number is missed",
+  "campaign.status_changed": "A campaign starts, pauses or stops",
+  "lead.consent_changed": "Someone gives or withdraws permission",
+  "dnc.added": "A number is added to Do not call",
 };
 
 /**
@@ -161,13 +166,74 @@ export function useEndpoints(session: Session): UseQueryResult<Endpoint[]> {
   });
 }
 
-export function useDeliveries(session: Session): UseQueryResult<Delivery[]> {
+/** A delivery's outcome (WEBHOOKS §1.5); `held` while its endpoint is paused. */
+export const DELIVERY_STATUSES = ["delivered", "retrying", "failed", "skipped", "held"] as const;
+export type DeliveryStatus = (typeof DELIVERY_STATUSES)[number];
+
+/** The delivery log's filters (D-1049); each left out narrows nothing. */
+export type DeliveryFilters = {
+  endpointId?: string;
+  status?: DeliveryStatus;
+  event?: OutboundEvent;
+};
+
+export function useDeliveries(
+  session: Session,
+  filters: DeliveryFilters = {},
+  options: { enabled?: boolean } = {},
+): UseQueryResult<Delivery[]> {
+  const query = new URLSearchParams();
+  if (filters.endpointId) query.set("endpoint_id", filters.endpointId);
+  if (filters.status) query.set("status", filters.status);
+  if (filters.event) query.set("event", filters.event);
+  const search = query.toString();
   return useQuery({
-    queryKey: ["deliveries", session.orgSlug],
-    queryFn: () => apiRequest<Delivery[]>(session, "/v1/integrations/deliveries"),
+    // The unfiltered list keeps its key, so every invalidation of "deliveries" reaches both.
+    queryKey: search ? ["deliveries", session.orgSlug, search] : ["deliveries", session.orgSlug],
+    queryFn: () =>
+      apiRequest<Delivery[]>(session, `/v1/integrations/deliveries${search ? `?${search}` : ""}`),
     // Deliveries move on the outbox's schedule (seconds), and this screen is usually
     // open precisely because someone is watching one land.
     refetchInterval: livePoll(20_000),
+    enabled: options.enabled ?? true,
+  });
+}
+
+export type TestDelivery = Schemas["EndpointTestOut"];
+export type EndpointResume = Schemas["EndpointResumeOut"];
+
+/** `POST /v1/integrations/endpoints/{id}/test` — one signed delivery with made-up data. */
+export function useSendTestDelivery(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (endpointId: string) =>
+      apiRequest<TestDelivery>(session, `/v1/integrations/endpoints/${endpointId}/test`, {
+        method: "POST",
+        body: {},
+      }),
+    // The worker records it within seconds; re-read once it has had the chance.
+    onSuccess: () =>
+      setTimeout(
+        () => client.invalidateQueries({ queryKey: ["deliveries", session.orgSlug] }),
+        3_000,
+      ),
+  });
+}
+
+/** `POST /v1/integrations/endpoints/{id}/resume` — unpause and send what was held. */
+export function useResumeEndpoint(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (endpointId: string) =>
+      apiRequest<EndpointResume>(session, `/v1/integrations/endpoints/${endpointId}/resume`, {
+        method: "POST",
+      }),
+    onSuccess: () =>
+      Promise.all(
+        ["endpoints", "deliveries"].map((family) =>
+          client.invalidateQueries({ queryKey: [family, session.orgSlug] }),
+        ),
+      ),
   });
 }
 
