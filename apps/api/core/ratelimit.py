@@ -373,6 +373,8 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/calls/*/translation", "costly", _m("POST")),
     Rule("/v1/agents/*/script/tests", "costly", _m("POST")),
     Rule("/v1/agents/*/try-chat", "costly", _m("POST")),
+    Rule("/v1/campaigns/*/rehearse", "costly", _m("POST")),
+    Rule("/v1/inbound-lines/*/rehearse", "costly", _m("POST")),
     Rule("/v1/agents/*/test-cases/run", "costly", _m("POST")),
     Rule("/v1/kb/teach/upload", "costly", _m("POST")),
     # "Meet your agent" (D-855): each queues speech-to-text or a model call.

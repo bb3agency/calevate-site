@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.actions import service as action_service
 from apps.api.agents import hot_facts, script_builder
 from apps.api.agents.business_fit import UNKNOWN, BusinessFit
-from apps.api.agents.script_lint import CapabilityManifest, LintContext
+from apps.api.agents.script_lint import CapabilityManifest, LintContext, owner_prohibitions
 from apps.api.agents.starters import TRADES
 from apps.api.core.errors import ProblemError
 from apps.api.teach import pinned as pinned_store
@@ -108,9 +108,11 @@ async def lint_context_for(
     ).first()
     if row is None:
         raise ProblemError.not_found("Agent")
+    facts = await owner_facts(session, tenant_id=tenant_id, agent_id=agent_id)
     return LintContext(
         manifest=await manifest_for(session, tenant_id=tenant_id, agent_id=agent_id),
-        facts=" ".join(await owner_facts(session, tenant_id=tenant_id, agent_id=agent_id)),
+        facts=" ".join(facts),
+        owner_rules=owner_prohibitions(facts),
         agent_name=str(row[0] or ""),
         business_name=str(row[1] or ""),
         language=str(row[2] or ""),

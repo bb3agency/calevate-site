@@ -942,6 +942,9 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ),
     ("GET", "/v1/campaigns/{campaign_id}/script/versions", {}, {}),
     ("GET", "/v1/campaigns/{campaign_id}/script/checks", {}, {}),
+    # D-1050: a rehearsal and What it is told read the holder under the caller's session.
+    ("GET", "/v1/campaigns/{campaign_id}/script/told", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/rehearse", {"message": "Hello?"}, {}),
     (
         "POST",
         "/v1/campaigns/{campaign_id}/script/versions/{script_version_id}/restore",
@@ -950,6 +953,8 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ),
     ("GET", "/v1/inbound-lines/{line_id}/script/versions", {}, {}),
     ("GET", "/v1/inbound-lines/{line_id}/script/checks", {}, {}),
+    ("GET", "/v1/inbound-lines/{line_id}/script/told", {}, {}),
+    ("POST", "/v1/inbound-lines/{line_id}/rehearse", {"message": "Hello?"}, {}),
     (
         "POST",
         "/v1/inbound-lines/{line_id}/script/restore-before-pip",

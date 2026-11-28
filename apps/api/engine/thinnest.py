@@ -177,6 +177,7 @@ from apps.api.engine.forwarding_probe import (
 from apps.api.engine.health import PlatformStatus
 from apps.api.engine.recording_source import EngineRecordingSource, RecordingFetchRules
 from apps.api.engine.test_chat import (
+    OUR_ARGUMENTS,
     TEST_CALL_NOT_SET_UP,
     TEST_CHAT_UNAVAILABLE,
     TestChatMode,
@@ -627,8 +628,9 @@ def wire_str(value: Any) -> str | None:
 
 def _test_chat_tool(item: dict[str, Any], name: str) -> TestChatTool:
     """One `TestChatToolUse` (test-chat.md:616-635: `name`, `output` when it succeeded,
-    `error` when it failed). `output` is whatever the tool answered; for one of our actions
-    that is our `{status, say}` object, as an object or as its JSON text."""
+    `error` when it failed, `input` what the agent sent it). `output` is whatever the tool
+    answered; for one of our actions that is our `{status, say}` object, as an object or as
+    its JSON text. Of `input` only our own actions' parameters in `OUR_ARGUMENTS` are kept."""
     output = item.get("output")
     if isinstance(output, str):
         try:
@@ -636,10 +638,26 @@ def _test_chat_tool(item: dict[str, Any], name: str) -> TestChatTool:
         except ValueError:
             output = None
     status = output.get("status") if isinstance(output, dict) else None
+    sent = item.get("input")
+    if isinstance(sent, str):
+        try:
+            sent = json.loads(sent)
+        except ValueError:
+            sent = None
+    arguments = (
+        tuple(
+            (key, value[:40])
+            for key, value in sorted(sent.items())
+            if key in OUR_ARGUMENTS and isinstance(value, str) and value.strip()
+        )
+        if isinstance(sent, dict)
+        else ()
+    )
     return TestChatTool(
         name=name,
         ok=item.get("error") is None,
         status=status[:40] if isinstance(status, str) and status else None,
+        arguments=arguments,
     )
 
 

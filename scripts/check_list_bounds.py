@@ -1500,6 +1500,15 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             )
         ),
     ),
+    **dict.fromkeys(
+        ("POST /v1/campaigns/{campaign_id}/rehearse", "POST /v1/inbound-lines/{line_id}/rehearse"),
+        BoundedByConstruction(
+            by=(
+                "`teach/try_chat.rehearse`: ONE reply's tools as the engine reports them, and "
+                "its reply checks, at most one per `turn_checks.Kind`."
+            )
+        ),
+    ),
     "GET /v1/campaigns/{campaign_id}/test-calls": BoundedByConstruction(
         by="the newest `campaigns/workspace_routes.TEST_CALLS_SHOWN`, in the LIMIT."
     ),

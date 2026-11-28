@@ -15,7 +15,12 @@ The modes:
 - `lines`: targeted repair of the lines at named paths, still through the step writer, only
   those fields taken from its answer;
 - `outcomes`: the step outcomes' own request, through the same ladder and budget;
-- `opening`: the opening line (`workers/opening_line.write_opening`).
+- `opening`: the opening line (`workers/opening_line.write_opening`);
+- `edit`: an owner's free-form change to a saved script (W3.7). One small request maps the
+  change to the places it touches (`edit_map`); only those steps and lines are written, and
+  every other part of the script is the saved one, byte for byte (`_only_where_mapped`). A
+  change that reshapes the call (a step added, removed or moved, the whole script rewritten)
+  or that names no place is written `whole` instead.
 
 Structure is code's, words are the model's: a step is written by its own small request
 (`workers/step_writer`), the script is assembled by one applier (`laid`), checked by one
@@ -112,7 +117,7 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-Mode = Literal["whole", "steps", "lines", "outcomes", "opening"]
+Mode = Literal["whole", "steps", "lines", "outcomes", "opening", "edit"]
 
 #: A step that fails its checks is written again at most this often (DESIGN §3.2).
 REWRITE_ROUNDS: Final = 2
@@ -205,6 +210,9 @@ class WriteResult:
     task_plan: OwnerPlan | None = None
     #: `outcomes`: the answer's value.
     value: Any = None
+    #: `edit`: what was changed where, by the review's row key (`stages.<id>` for a step,
+    #: the part's name for any other), for its "What Pip changed" line.
+    changed: dict[str, str] = field(default_factory=dict)
 
 
 class WriteRefusedError(Exception):
@@ -1358,7 +1366,264 @@ async def _outcomes(request: WriteRequest) -> WriteResult:
     return WriteResult(request.base or CallScript(schema_version=2), [answer], value=answer)
 
 
+# --- the targeted edit (W3.7) -------------------------------------------------------------
+
+#: The text parts outside the steps an edit may change, by the review's part name.
+_EDIT_PARTS: Final = (
+    "business_line",
+    "identity",
+    "goal",
+    "outbound_purpose",
+    "opening_line",
+    "outbound_opening_line",
+    "ending",
+)
+#: What an edit's place is called when it is every step at once.
+EVERY_STEP: Final = "every_step"
+
+EDIT_MAP_INSTRUCTION: Final = (
+    "You decide WHERE an owner's change to an AI phone agent's call script goes. You are "
+    "given the owner's request and the script's places, each with its key and what it says "
+    "now. Return JSON: whole, true only when the request asks for the whole script to be "
+    "written again, for a step to be added, removed or moved, or when it cannot be tied to "
+    "any place; changes, one per place the request changes and no other, each with its key "
+    "exactly as given and change, one short plain-English sentence saying what must change "
+    "there, with any line the owner gave in their own words; every_step, for a rule that "
+    "holds on every step ('never say sir', 'always use their name'), its change and "
+    "lines_only true when only what the agent says changes, else an empty change. A place "
+    "the request does not touch is left out. Return ONLY JSON."
+)
+
+_EDIT_MAP_FORMAT: Final[dict[str, object]] = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "calevate_script_edit_map",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["whole", "changes", "every_step"],
+            "properties": {
+                "whole": {"type": "boolean"},
+                "changes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["where", "change"],
+                        "properties": {"where": {"type": "string"}, "change": {"type": "string"}},
+                    },
+                },
+                "every_step": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["change", "lines_only"],
+                    "properties": {
+                        "change": {"type": "string"},
+                        "lines_only": {"type": "boolean"},
+                    },
+                },
+            },
+        },
+    },
+}
+#: One change sentence, at most; the step writer reads it as a note.
+_CHANGE_CHARS: Final = 400
+
+
+@dataclass(frozen=True, slots=True)
+class EditMap:
+    """Where an owner's change goes: `whole` for a change that reshapes the call, else the
+    steps by id and the other parts by path, each with what changes there."""
+
+    whole: bool = False
+    steps: dict[str, str] = field(default_factory=dict)
+    parts: dict[str, str] = field(default_factory=dict)
+    #: The steps of which only the lines the agent says change (a rule on every step).
+    lines_only: frozenset[str] = frozenset()
+
+
+def edit_places(script: CallScript) -> list[tuple[str, str]]:
+    """(key, what it says now) for every place an edit may change: each step by its id, the
+    text parts outside the steps, each quick fact's answer and each push-back answer."""
+    places = [
+        (f"stages.{s.id}", f'step "{s.name}": {" ".join(s.instruction.split())[:200]}')
+        for s in script.stages
+    ]
+    places += [
+        (name, said[:200]) for name in _EDIT_PARTS if (said := str(getattr(script, name)).strip())
+    ]
+    places += [
+        (f"faqs.{i}.answer", f"{f.question} {f.answer}"[:200]) for i, f in enumerate(script.faqs)
+    ]
+    places += [
+        (f"objections.{i}.response", f"{o.objection} {o.response}"[:200])
+        for i, o in enumerate(script.objections)
+    ]
+    return places
+
+
+def edit_map_request(instruction: str, script: CallScript, language: str) -> str:
+    lines = [f"Owner's request: {instruction.strip()}", f"Call language: {language}", "Places:"]
+    lines += [f"{key}: {said}" for key, said in edit_places(script)]
+    return "\n".join(lines)
+
+
+def parsed_edit_map(raw: dict[str, Any], script: CallScript) -> EditMap:
+    """The model's map held to the script: a key it was not given is dropped, and a map
+    naming no place at all is unusable rather than an edit of nothing."""
+    if raw.get("whole") is True:
+        return EditMap(whole=True)
+    known = {key for key, _said in edit_places(script)}
+    steps: dict[str, str] = {}
+    parts: dict[str, str] = {}
+    for row in raw.get("changes") or []:
+        if not isinstance(row, dict):
+            continue
+        where, change = (
+            str(row.get("where") or "").strip(),
+            " ".join(str(row.get("change") or "").split())[:_CHANGE_CHARS],
+        )
+        if where not in known or not change:
+            continue
+        if where.startswith("stages."):
+            steps[where.removeprefix("stages.")] = change
+        else:
+            parts[where] = change
+    given = raw.get("every_step")
+    every: dict[str, Any] = given if isinstance(given, dict) else {}
+    rule = " ".join(str(every.get("change") or "").split())[:_CHANGE_CHARS]
+    lines_only: set[str] = set()
+    if rule:
+        for stage in script.stages:
+            steps[stage.id] = f"{steps[stage.id]} {rule}" if stage.id in steps else rule
+            if every.get("lines_only") is True:
+                lines_only.add(stage.id)
+    if not steps and not parts:
+        raise UnusableAnswerError(
+            "changes: name at least one place by its key, or set whole to true"
+        )
+    return EditMap(steps=steps, parts=parts, lines_only=frozenset(lines_only))
+
+
+async def edit_map(
+    context: ScriptContext, script: CallScript, timeout_s: float
+) -> JsonAnswer[EditMap]:
+    """Where the owner's change goes, in one small request."""
+    return await ask_json(
+        edit_map_request(context.instruction, script, context.language),
+        EDIT_MAP_INSTRUCTION,
+        parse=lambda raw: parsed_edit_map(raw, script),
+        azure_format=_EDIT_MAP_FORMAT,
+        tenant_leg=context.tenant_leg,
+        quota_exhausted=context.quota_exhausted,
+        max_tokens=1_200,
+        temperature=0.1,
+        timeout_s=timeout_s,
+    )
+
+
+#: The stage fields an edit of only the lines takes from the step writer (`stage_with`).
+_LINES_ONLY: Final = frozenset({"examples", "qa"})
+
+
+def _part_key(path: str) -> str:
+    """The review's row key for a part path: "faqs.2.answer" is the "faqs" row."""
+    return path.split(".", 1)[0]
+
+
+def _only_where_mapped(base: CallScript, script: CallScript, mapped: EditMap) -> CallScript:
+    """`script` with every step and part the map does not name put back exactly as `base`
+    has it, so an edit can never touch a place it was not asked to: whatever a writer or
+    repair round did elsewhere is undone here, not trusted to have been left alone."""
+    by_id = {s.id: s for s in script.stages}
+    stages = [by_id.get(s.id, s) if s.id in mapped.steps else s for s in base.stages]
+    named = {_part_key(path) for path in mapped.parts}
+    data = base.model_dump(mode="json")
+    edited = script.model_dump(mode="json")
+    for key in named:
+        data[key] = edited[key]
+    data["stages"] = [s.model_dump(mode="json") for s in stages]
+    return CallScript.model_validate(data)
+
+
+async def _edit(request: WriteRequest) -> WriteResult:
+    context, started = request.context, request.started
+    base = request.base
+    if base is None or not context.instruction.strip():
+        return await _whole(replace(request, mode="whole"))
+    spends: list[Spent] = []
+    timeout_s = request_timeout(started)
+    mapped: EditMap | None = None
+    if timeout_s is not None:
+        try:
+            answer = await edit_map(context, base, timeout_s)
+            spends.append(answer)
+            mapped = answer.value
+        except ProblemError as refused:
+            spends.append(refused)
+    if mapped is None or mapped.whole:
+        log.info("script_edit_written_whole", extra={"mapped": mapped is not None})
+        result = await _whole(replace(request, mode="whole"))
+        result.spends = [*spends, *result.spends]
+        return result
+    plan = plan_from_script(base)
+    keys = [k for k in mapped.steps if plan.step(k) is not None]
+    only = {k: _LINES_ONLY for k in keys if k in mapped.lines_only} or None
+    script = base
+    if keys:
+        first = await _written(context, plan, base, keys, started, notes=mapped.steps)
+        spends += first.spends
+        if not first.words and first.refused is not None and not mapped.parts:
+            raise WriteRefusedError(first.refused, spends)
+        script = laid(base, first.words, only=only)
+    lines = [
+        (path, said, [f"the owner asks: {change}"])
+        for path, change in mapped.parts.items()
+        if (said := _string_at(base, path)) is not None
+    ]
+    if lines and (part_timeout := request_timeout(started)) is not None:
+        try:
+            parts = await write_parts(
+                lines,
+                language=context.language,
+                tenant_leg=context.tenant_leg,
+                quota_exhausted=context.quota_exhausted,
+                timeout_s=part_timeout,
+            )
+            spends.append(parts)
+            script = with_parts(script, parts.value)
+        except ProblemError as refused:
+            spends.append(refused)
+
+    def check(s: CallScript) -> list[str]:
+        return checked(s, context, before=base)
+
+    done = await _rounds(context, plan, script, keys, started, check=check, only=only)
+    script = _only_where_mapped(base, done.script, mapped)
+    if script == base:
+        raise WriteRefusedError(_nothing_written(), [*spends, *done.spends])
+    changed = {
+        **{f"stages.{k}": change for k, change in mapped.steps.items() if k in keys},
+        **{_part_key(path): change for path, change in mapped.parts.items()},
+    }
+    left = [p for p in check(script) if _touched(p, script, mapped)]
+    return WriteResult(
+        script, [*spends, *done.spends], _warnings(left, script), plan, changed=changed
+    )
+
+
+def _touched(problem: str, script: CallScript, mapped: EditMap) -> bool:
+    """Whether a finding is on a place the edit changed."""
+    on_steps = by_step([problem], script)
+    if on_steps:
+        return bool(on_steps.keys() & mapped.steps.keys())
+    path = problem.partition(": ")[0]
+    return _part_key(path) in {_part_key(p) for p in mapped.parts}
+
+
 _MODES: Final = {
+    "edit": _edit,
     "whole": _whole,
     "steps": _steps,
     "lines": _lines,

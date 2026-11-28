@@ -65,6 +65,7 @@ from apps.api.agents.script_lint import (
     caller_paths,
     instruction_fields,
     instruction_problems,
+    owner_prohibitions,
     spoken_fields,
     spoken_line_problems,
 )
@@ -402,6 +403,7 @@ class ScriptBrief:
             agent_name=self.agent_name,
             business_name=self.business_name,
             places_calls=self.places_calls(),
+            owner_rules=owner_prohibitions(self.facts),
         )
 
     def user_message(self) -> str:
