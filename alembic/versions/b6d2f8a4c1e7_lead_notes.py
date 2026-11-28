@@ -1,7 +1,7 @@
 """lead_notes: what the team writes on a lead or one of its calls (W7.2)
 
 Revision ID: b6d2f8a4c1e7
-Revises: e8b4d1f6a2c9
+Revises: c7d3a9e5f218
 Create Date: 2026-11-28
 
 A person's free-text note on a lead, optionally written from one of its calls. The words live
@@ -20,7 +20,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "b6d2f8a4c1e7"
-down_revision: str | Sequence[str] | None = "e8b4d1f6a2c9"
+down_revision: str | Sequence[str] | None = "c7d3a9e5f218"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
