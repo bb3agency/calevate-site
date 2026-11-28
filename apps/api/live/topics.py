@@ -75,6 +75,7 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     # leads
     "leads": "leads",
     "lead_events": "leads",
+    "lead_notes": "leads",
     "lead_call_holds": "leads",
     "lead_call_policies": "leads",
     # Follow-ups (D-940) live under Leads; a run moving or a step recorded changes the Runs tab.

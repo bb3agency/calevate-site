@@ -71,6 +71,7 @@ from apps.api.crm.lens import (
     lead_row_clauses,
 )
 from apps.api.crm.live_calls import LIVE_STATE_SQL, RUNNING_SQL, live_state_params
+from apps.api.crm.notes import OWNER_NOTE_KIND, note_bodies
 from apps.api.crm.outcomes import normalise as normalise_outcome
 from apps.api.crm.performance import IST_HOUR_SQL, IST_TODAY_SQL, IST_ZONE
 from apps.api.crm.schemas import (
@@ -92,6 +93,7 @@ from apps.api.crm.schemas import (
     LeadTimelineEventOut,
     LeadTimelineOut,
     SummaryState,
+    TimelineNoteOut,
     TranscriptTurnOut,
     TurnTimingOut,
     insights_out,
@@ -2889,6 +2891,9 @@ def _project_event(
             # spellings of one decision AND put a wire name on a client's screen.
             rule = _code(payload, "rule") or "unknown"
             return ("Call blocked", block_remedy(rule), None)
+        if _code(payload, "kind") == OWNER_NOTE_KIND:
+            # The words are in `lead_notes`, read by `lead_timeline` beside this row.
+            return ("Note", None, _timeline_uuid(payload, "call_id"))
         return ("Note", None, None)
 
     if event_type == "notification":
@@ -3004,6 +3009,14 @@ async def lead_timeline(
     names = await _member_names(session, wanted)
 
     projected = [(row, _project_event(str(row[1]), row[2] or {}, names)) for row in rows]
+    notes = await note_bodies(
+        session,
+        {
+            note_id
+            for row in rows
+            if (note_id := _owner_note_id(str(row[1]), row[2] or {})) is not None
+        },
+    )
     moments = await _call_moments(
         session,
         {p[2] for row, p in projected if p[2] is not None and str(row[1]) == "call"},
@@ -3011,6 +3024,10 @@ async def lead_timeline(
     items: list[LeadTimelineEventOut] = []
     for row, (title, detail, call_id) in projected:
         actor = _actor_uuid(row[3])
+        note_id = _owner_note_id(str(row[1]), row[2] or {})
+        note = notes.get(note_id) if note_id is not None else None
+        if note_id is not None and note is None:
+            title = "Note removed"
         items.append(
             LeadTimelineEventOut(
                 id=row[0],
@@ -3026,6 +3043,17 @@ async def lead_timeline(
                     if call_id is not None and str(row[1]) == "call"
                     else []
                 ),
+                note=(
+                    TimelineNoteOut(
+                        id=note.id,
+                        body=note.body,
+                        version=note.version,
+                        author_user_id=note.author_user_id,
+                        edited_at=note.edited_at,
+                    )
+                    if note is not None
+                    else None
+                ),
             )
         )
     return LeadTimelineOut(
@@ -3037,6 +3065,13 @@ async def lead_timeline(
         limit=min(limit, MAX_TIMELINE_PAGE),
         offset=offset,
     )
+
+
+def _owner_note_id(event_type: str, payload: dict[str, Any]) -> UUID | None:
+    """The `lead_notes` id a person's note row names, or None for any other row."""
+    if event_type != "note" or _code(payload, "kind") != OWNER_NOTE_KIND:
+        return None
+    return _timeline_uuid(payload, "note_id")
 
 
 def _actor_uuid(actor: Any) -> UUID | None:

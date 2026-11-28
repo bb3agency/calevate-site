@@ -185,6 +185,9 @@ TENANT_TABLES = [
     "call_engine_signals",
     "leads",
     "lead_events",
+    # What the team writes on a lead or one of its calls (W7.2, migration b6d2f8a4c1e7):
+    # free prose, so both erasures and the lead retention clock delete it.
+    "lead_notes",
     # Per-user-per-tenant Leads-table state (SURFACES §2 saved views, migration
     # a7e2c40d9b53). Tenant-isolated like every other row here; the per-USER half is an
     # explicit `user_id` predicate in `crm.saved_views`, because RLS answers "which
