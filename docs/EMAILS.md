@@ -48,8 +48,11 @@ Sender purposes (Part 2): **SEC** security · **NOT** notifications · **BIL** b
 | N8 | Number held / released / calls stopped | a number goes on hold, is about to be released, or released | billing address + active owners | Calls to your phone number have stopped · Your phone number will be given up soon · We have given up your phone number(s) | `workers/number_holds.py` |
 | N9 | Weekly knowledge digest | weekly, per agent with enough calls | billing address | What your callers asked this week | `workers/kb_aggregation.py` |
 | N10 | Business verification approved / rejected | an operator decides a KYC review (D-932) | owners | Verification outcome, with the reason and a button to fix it when rejected | `workers/kyc_notices.py` |
-| N11 | Daily summary (D-944) | once a day at 20:58 IST, only for an account whose owner turned it on (Notification settings), and not on a day with nothing in it | billing address + active owners | Today: {n} calls answered, {n} new leads | `workers/owner_digest.py`, `notifications/daily_summary.py` |
+| N11 | Daily summary (D-944) | once a day at 20:58 IST (or 08:02 IST for the day before, D-1048), only for an account whose owner turned it on (Notification settings), and not on a day with nothing in it | billing address + active owners | Today: {n} calls answered, {n} new leads | `workers/owner_digest.py`, `notifications/daily_summary.py` |
 | N12 | Campaign archived / deleted by our team | an operator archives a client's campaign or deletes a draft one (F-10) | billing address + active owners | We archived your campaign “{campaign}” · We deleted your draft campaign “{campaign}” | `workers/campaign_archive_notice.py` |
+| N13 | Campaign finished (D-1048) | a campaign completes, unless the owner switched its email off in Alerts; held by quiet hours and folded by the daily limit | billing address + active owners | Your campaign finished | `workers/notifications.notify_campaign_finished` |
+| N14 | Alerts that waited (D-1048) | quiet hours end, or the day ends after the daily limit was reached, with alerts held | billing address + active owners | While you were away: {n} alerts · {n} more alerts from today | `workers/notifications.release_held_alerts` |
+| N15 | Sample alert (D-1048) | a person presses Send me a sample email in Alerts | that person's own address | Sample alert from your AI agent | `workers/notifications.send_alert_sample` |
 
 ### Billing (`BIL`)
 

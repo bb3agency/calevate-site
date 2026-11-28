@@ -311,6 +311,12 @@ QUIET_TABLES: Final[dict[str, str]] = {
     ),
     "announcement_dismissals": "one person's own dismissals; their screen updates on the write",
     "notification_reads": "one person's own read marks; their screen updates on the write",
+    "notification_preferences": (
+        "one person's own alert choices; the alerts screen refetches on its own write"
+    ),
+    "notification_deliveries": (
+        "the alert gate's own record; the bell reads its posted items on its one-minute poll"
+    ),
     "platform_announcements": (
         "operator-written banners, read on the web's five-minute announcements poll"
     ),

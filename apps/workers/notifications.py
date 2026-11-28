@@ -38,13 +38,22 @@ accidentally put a phone number into a log line or a third-party API. The alerts
 carry ids, never addresses; and the BODY keeps the caller's number masked and the call
 summary redacted even though D-436 unmasked both classes on the dashboard — `_compose`
 carries that decision and the reason it is not an inconsistency.
+
+**The owner's alert table decides first (D-1048, `notifications/preferences.gate`).** Before
+either channel is used the gate is asked: a cell the owner switched off sends nothing, quiet
+hours hold the alert and the daily email cap folds it, and `release_held_alerts` sends what
+was held as ONE message once the window ends. The gate records its answer under the alert's
+own key, so a retry of this job gets the same answer and a held alert is never sent twice.
+This module also sends the campaign-finished alert (`notify_campaign_finished`) and the
+"Send me a sample" message (`send_alert_sample`).
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, Final
 from uuid import UUID
 
 from arq import Retry
@@ -52,20 +61,29 @@ from calevate_shared.backoff import ladder_delay_s
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.campaigns import results as campaign_results
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES, job_try
+from apps.api.core.settings import get_settings
 from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.crm.lead_definition import stage_name
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
-from apps.api.db.session import tenant_session
+from apps.api.db.session import admin_session, tenant_session
+from apps.api.notifications import campaign_finished, preferences
 from apps.api.team_alerts import service as team_alerts
 from apps.api.tenancy.caller_words import CallerWords, caller_words_for
+from apps.workers.account_closure import account_recipients
 from apps.workers.auth_email import CONSOLE_BASE
-from apps.workers.email_render import from_text
+from apps.workers.email_render import Email, from_text, product_email
 from apps.workers.redaction import redact
-from apps.workers.whatsapp import enqueue_hot_lead_whatsapp
+from apps.workers.whatsapp import (
+    WhatsAppMessage,
+    enqueue_hot_lead_whatsapp,
+    get_whatsapp_transport,
+    resolve_destination,
+)
 
 log = get_logger(__name__)
 
@@ -139,15 +157,48 @@ async def notify_hot_lead(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         name, phone, status, summary, billing_email, slug, outcome_label = row
         words = await caller_words_for(session, tenant_id)
 
+        subject = hot_lead_subject(words, outcome_label)
         if billing_email and await team_alerts.team_covers(
             session, call_id=call_id, channel=CHANNEL, address=billing_email
         ):
             # The owner's address is also a team address told about this call, with the
             # full number: one email per inbox per call. The WhatsApp leg is its own.
-            await enqueue_hot_lead_whatsapp(
-                session, tenant_id=tenant_id, lead_id=lead_id, call_id=call_id, triggers=triggers
+            await _owner_whatsapp(
+                session,
+                tenant_id=tenant_id,
+                lead_id=lead_id,
+                call_id=call_id,
+                triggers=triggers,
+                title=subject,
             )
             return "covered_by_team"
+
+        decision: preferences.Decision = "send"
+        if billing_email:
+            decision = await preferences.gate(
+                session,
+                tenant_id=tenant_id,
+                kind="hot_lead",
+                channel="email",
+                dedupe_key=team_alerts.owner_dedupe_key(lead_id=lead_id, call_id=call_id),
+                title=subject,
+                href=f"/leads/{lead_id}",
+                ref={"lead_id": str(lead_id), "call_id": str(call_id)},
+            )
+        if decision != "send":
+            # Switched off, held for quiet hours, folded past the day's cap, or already sent
+            # in a digest: no email now, and no delivery record on the lead, because nothing
+            # was attempted. The WhatsApp leg asks the gate for itself.
+            await _owner_whatsapp(
+                session,
+                tenant_id=tenant_id,
+                lead_id=lead_id,
+                call_id=call_id,
+                triggers=triggers,
+                title=subject,
+            )
+            log.info("hot_lead_email_gated", extra={"lead_id": str(lead_id), "gate": decision})
+            return f"email_{decision}"
 
         if billing_email:
             body = _compose(
@@ -168,9 +219,7 @@ async def notify_hot_lead(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
             # What it used to cost was the event loop, which is every job in the process.
             # Those are not the same order of problem, and `to_thread` closes the one
             # that is.
-            delivered = await _send_email(
-                billing_email, hot_lead_subject(words, outcome_label), body
-            )
+            delivered = await _send_email(billing_email, subject, body)
         else:
             # Nothing to attempt: `_send_email` would only report the same thing back.
             delivered = False
@@ -202,12 +251,13 @@ async def notify_hot_lead(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         # its own record, its own ladder, its own alert — and a lead is "notified" only
         # per channel: a landed WhatsApp nudge does not make a lost email acceptable,
         # because the client asked for the ping AND the inbox trail.
-        whatsapp_queued = await enqueue_hot_lead_whatsapp(
+        whatsapp_queued = await _owner_whatsapp(
             session,
             tenant_id=tenant_id,
             lead_id=lead_id,
             call_id=call_id,
             triggers=triggers,
+            title=subject,
         )
 
     if whatsapp_queued:
@@ -251,6 +301,37 @@ async def notify_hot_lead(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         lead_id=str(lead_id),
     )
     return f"exhausted after {attempt}"
+
+
+async def _owner_whatsapp(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    lead_id: UUID,
+    call_id: UUID,
+    triggers: list[str],
+    title: str,
+) -> bool:
+    """The owner's WhatsApp leg, past the gate. While our WhatsApp is switched off nothing is
+    asked or recorded: there is no channel to hold for. A held alert keeps the ids it needs,
+    and `release_held_alerts` queues this same job for it when quiet hours end."""
+    if not get_settings().whatsapp_enabled:
+        return False
+    decision = await preferences.gate(
+        session,
+        tenant_id=tenant_id,
+        kind="hot_lead",
+        channel="whatsapp",
+        dedupe_key=f"hot-lead-whatsapp:{lead_id}:{call_id}",
+        title=title,
+        href=f"/leads/{lead_id}",
+        ref={"lead_id": str(lead_id), "call_id": str(call_id), "triggers": triggers},
+    )
+    if decision != "send":
+        return False
+    return await enqueue_hot_lead_whatsapp(
+        session, tenant_id=tenant_id, lead_id=lead_id, call_id=call_id, triggers=triggers
+    )
 
 
 async def _already_delivered(session: AsyncSession, *, lead_id: UUID, call_id: UUID) -> bool:
@@ -476,4 +557,284 @@ def _json(value: Any) -> str:
     return json.dumps(value, default=str)
 
 
-__all__ = ["notify_hot_lead"]
+# --- held and folded alerts, campaign finished, samples (D-1048) --------------------------
+
+#: Accounts one release tick reaches; the rest are reached on the next tick, five minutes on.
+RELEASE_TENANTS_PER_TICK: Final = 200
+#: Items named one by one in the digest; the rest are "and N more".
+DIGEST_ITEMS: Final = 10
+
+_DUE_TENANTS = text(
+    "SELECT DISTINCT tenant_id FROM notification_deliveries "
+    "WHERE state IN ('held', 'folded') AND due_at <= :now ORDER BY tenant_id LIMIT :lim"
+)
+_DUE_ROWS = text(
+    "SELECT id, kind, channel, title, ref, state FROM notification_deliveries "
+    "WHERE state IN ('held', 'folded') AND due_at <= :now "
+    "ORDER BY created_at, id FOR UPDATE SKIP LOCKED"
+)
+_RELEASE = text(
+    "UPDATE notification_deliveries SET state = 'released', released_at = :now, "
+    "updated_at = now() WHERE id = ANY(:ids)"
+)
+_SLUG = text("SELECT slug FROM organizations WHERE deleted_at IS NULL")
+
+
+def compose_digest(titles: list[tuple[str, str]], *, held: int, folded: int, slug: str) -> Email:
+    """One message for everything that waited. `titles` are (kind label, our own sentence)."""
+    total = held + folded
+    noun = "alert" if total == 1 else "alerts"
+    if held and not folded:
+        subject = f"While you were away: {total} {noun}"
+        first = f"{total} {noun} waited for your quiet hours to end."
+    else:
+        subject = f"{total} more {noun} from today"
+        first = f"You reached your daily email limit, so {total} {noun} came together."
+    facts = list(titles[:DIGEST_ITEMS])
+    more = len(titles) - len(facts)
+    return product_email(
+        subject=subject,
+        preheader=first,
+        heading="Alerts that waited",
+        lines=[first, "Open your dashboard to see each one."],
+        facts=facts,
+        note=f"And {more} more." if more > 0 else None,
+        cta="Open your dashboard",
+        url=f"{CONSOLE_BASE}/c/{slug}",
+        reason="You got this because your alert settings hold alerts and send them together.",
+        settings_url=f"{CONSOLE_BASE}/c/{slug}/settings/alerts",
+    )
+
+
+async def _send_product_email(email: Email, recipients: list[str]) -> int:
+    transport = get_transport(EmailPurpose.ALERTS)
+    delivered = 0
+    for address in recipients:
+        delivered += bool(
+            await asyncio.to_thread(
+                transport.send, to=address, subject=email.subject, body=email.text, html=email.html
+            )
+        )
+    return delivered
+
+
+async def release_one(tenant_id: UUID, *, now: datetime) -> str:
+    """Send one account's waiting alerts, if its quiet hours are over."""
+    async with tenant_session(tenant_id) as session:
+        prefs = await preferences.governing(session)
+        if prefs.quiet_at(now):
+            return "still_quiet"
+        rows = (await session.execute(_DUE_ROWS, {"now": now})).all()
+        if not rows:
+            return "nothing_due"
+        released: list[UUID] = []
+        for row in rows:
+            if row[2] != "whatsapp":
+                continue
+            ref = row[4] or {}
+            if ref.get("lead_id") and ref.get("call_id"):
+                await enqueue_hot_lead_whatsapp(
+                    session,
+                    tenant_id=tenant_id,
+                    lead_id=UUID(str(ref["lead_id"])),
+                    call_id=UUID(str(ref["call_id"])),
+                    triggers=[str(t) for t in ref.get("triggers") or []],
+                )
+            released.append(UUID(str(row[0])))
+        emails = [r for r in rows if r[2] == "email"]
+        if emails:
+            recipients = await account_recipients(session, tenant_id=tenant_id)
+            slug = str((await session.execute(_SLUG)).scalar_one())
+            digest = compose_digest(
+                [
+                    (
+                        preferences.KIND_BY_KEY[r[1]].label
+                        if r[1] in preferences.KIND_BY_KEY
+                        else "Alert",
+                        str(r[3]),
+                    )
+                    for r in emails
+                ],
+                held=sum(1 for r in emails if r[5] == "held"),
+                folded=sum(1 for r in emails if r[5] == "folded"),
+                slug=slug,
+            )
+            if not recipients:
+                log.warning("held_alerts_no_recipient", extra={"tenant_id": str(tenant_id)})
+            elif await _send_product_email(digest, recipients):
+                released += [UUID(str(r[0])) for r in emails]
+            else:
+                # Kept waiting: the next tick tries again. Ids only (hard rule 6).
+                log.warning(
+                    "held_alerts_undelivered",
+                    extra={"tenant_id": str(tenant_id), "alerts": len(emails)},
+                )
+        if released:
+            await session.execute(_RELEASE, {"ids": released, "now": now})
+    return "released" if released else "kept"
+
+
+async def release_held_alerts(ctx: dict[str, Any]) -> str:
+    """Every five minutes: send what quiet hours held or the daily cap folded, once it is
+    due. A failure in one account is counted and never stops the rest."""
+    del ctx
+    now = datetime.now(UTC)
+    async with admin_session() as directory:
+        tenants = [
+            UUID(str(t))
+            for t in (
+                await directory.execute(_DUE_TENANTS, {"now": now, "lim": RELEASE_TENANTS_PER_TICK})
+            ).scalars()
+        ]
+    counts: dict[str, int] = {}
+    for tenant_id in tenants:
+        try:
+            outcome = await release_one(tenant_id, now=now)
+        except Exception as exc:
+            outcome = "failed"
+            log.error(
+                "held_alerts_release_failed",
+                extra={"tenant_id": str(tenant_id), "error": exc.__class__.__name__},
+            )
+        counts[outcome] = counts.get(outcome, 0) + 1
+    return " ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "nothing_due"
+
+
+async def notify_campaign_finished(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+    """The bell item and the owner's email for one finished campaign (W5.2)."""
+    attempt = job_try(ctx)
+    tenant_id = UUID(str(payload["tenant_id"]))
+    campaign_id = UUID(str(payload["campaign_id"]))
+    finished_at = datetime.fromisoformat(str(payload["finished_at"]))
+    key = campaign_finished.dedupe_key(campaign_id, finished_at)
+    async with tenant_session(tenant_id) as session:
+        name = (
+            await session.execute(
+                text("SELECT name FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
+            )
+        ).scalar_one_or_none()
+        if name is None:
+            return "campaign_missing"
+        result = await campaign_results.summary(
+            session, campaign_id=campaign_id, include_spend=False
+        )
+        words = await caller_words_for(session, tenant_id)
+        title = campaign_finished.title(str(name), campaign_finished.figures(result), words)
+        href = f"/campaigns/{campaign_id}"
+        await preferences.post_bell(
+            session,
+            tenant_id=tenant_id,
+            kind=campaign_finished.KIND,
+            dedupe_key=key,
+            title=title,
+            href=href,
+            at=finished_at,
+        )
+        decision = await preferences.gate(
+            session,
+            tenant_id=tenant_id,
+            kind=campaign_finished.KIND,
+            channel="email",
+            dedupe_key=key,
+            title=title,
+            href=href,
+        )
+        recipients = await account_recipients(session, tenant_id=tenant_id)
+        slug = str((await session.execute(_SLUG)).scalar_one())
+    if decision != "send":
+        return f"email_{decision}"
+    if not recipients:
+        log.warning("campaign_finished_no_recipient", extra={"campaign_id": str(campaign_id)})
+        return "no_recipient"
+    email = product_email(
+        subject="Your campaign finished",
+        preheader=title,
+        heading="Your campaign finished",
+        lines=[title],
+        cta="See the results",
+        url=f"{CONSOLE_BASE}/c/{slug}{href}",
+        reason="You got this because campaign alerts are on in your alert settings.",
+        settings_url=f"{CONSOLE_BASE}/c/{slug}/settings/alerts",
+    )
+    if await _send_product_email(email, recipients):
+        log.info("campaign_finished_notified", extra={"campaign_id": str(campaign_id)})
+        return "sent"
+    if attempt < WORKER_MAX_TRIES:
+        raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
+    log.error("campaign_finished_undelivered", extra={"campaign_id": str(campaign_id)})
+    return f"exhausted after {attempt}"
+
+
+SAMPLE_SUBJECT: Final = "Sample alert from your AI agent"
+#: The hot-lead template's one variable, saying plainly that this is not a real call.
+SAMPLE_WHATSAPP_REASON: Final = "Sample alert, not a real call"
+
+
+def compose_sample(slug: str) -> Email:
+    return product_email(
+        subject=SAMPLE_SUBJECT,
+        preheader="This is a sample. No call happened.",
+        heading="This is a sample",
+        lines=[
+            "This is how an alert reaches you.",
+            "It is a sample: no call happened and nobody is waiting.",
+        ],
+        cta="Open your alert settings",
+        url=f"{CONSOLE_BASE}/c/{slug}/settings/alerts",
+        reason="You got this because you asked for a sample alert.",
+    )
+
+
+async def send_alert_sample(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+    """The "Send me a sample" message: email to the person who asked, WhatsApp only to the
+    owner whose WhatsApp opt-in is on file and only when that owner asked."""
+    del ctx
+    tenant_id = UUID(str(payload["tenant_id"]))
+    user_id = UUID(str(payload["user_id"]))
+    channel = str(payload["channel"])
+    async with tenant_session(tenant_id) as session:
+        slug = str((await session.execute(_SLUG)).scalar_one())
+        address = (
+            await session.execute(
+                text(
+                    "SELECT u.email FROM users u JOIN memberships m ON m.user_id = u.id "
+                    "WHERE u.id = :uid AND u.deactivated_at IS NULL"
+                ),
+                {"uid": user_id},
+            )
+        ).scalar_one_or_none()
+        owner = await preferences.governing_user(session)
+        destination = await resolve_destination(session, tenant_id)
+    if channel == "email":
+        if not address:
+            return "no_address"
+        sent = await _send_product_email(compose_sample(slug), [str(address)])
+        return "sent" if sent else "undelivered"
+    settings = get_settings()
+    if (
+        not settings.whatsapp_enabled
+        or owner != user_id
+        or destination is None
+        or destination.opt_in_at is None
+    ):
+        return "whatsapp_unavailable"
+    result = await get_whatsapp_transport().send(
+        WhatsAppMessage(
+            to_e164=destination.to_e164,
+            template=settings.whatsapp_template_hot_lead,
+            locale=settings.whatsapp_template_locale,
+            variables=(SAMPLE_WHATSAPP_REASON,),
+        )
+    )
+    return "sent" if result.delivered else "undelivered"
+
+
+__all__ = [
+    "compose_digest",
+    "compose_sample",
+    "notify_campaign_finished",
+    "notify_hot_lead",
+    "release_held_alerts",
+    "release_one",
+    "send_alert_sample",
+]

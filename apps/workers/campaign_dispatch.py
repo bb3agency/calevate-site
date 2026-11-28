@@ -168,6 +168,7 @@ from apps.api.engine.vendor_http import (
     EngineRejectedError,
 )
 from apps.api.integrations import service as integrations
+from apps.api.notifications import campaign_finished
 from apps.api.tenancy.call_lines import CALL_LINES_BUSY_RULE, read_call_lines
 
 # The call-back pass this tick runs (D-514). NOT an arq job of its own, and the reason is
@@ -1430,6 +1431,9 @@ async def _settle_finished_campaign(
         # enqueue rolls both back and the next tick re-completes the campaign, because
         # `complete_or_rearm` is a CAS off `running`.
         await emit_campaign_completed(session, tenant_id=tenant_id, campaign_id=campaign_id)
+        # The owner's bell and email (D-1048), promised in the same transaction for the
+        # same reason.
+        await campaign_finished.queue(session, tenant_id=tenant_id, campaign_id=campaign_id)
         # Its engine agent goes with the same write, as on Stop, so the workspace's
         # allowance is free for the next Start now rather than at the hourly sweep. The
         # deletion is owed through the outbox and waits out a call still on it.

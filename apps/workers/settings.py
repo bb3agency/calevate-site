@@ -285,7 +285,12 @@ from apps.workers.maintenance import (
     maintenance_tick,
     notify_maintenance,
 )
-from apps.workers.notifications import notify_hot_lead
+from apps.workers.notifications import (
+    notify_campaign_finished,
+    notify_hot_lead,
+    release_held_alerts,
+    send_alert_sample,
+)
 from apps.workers.number_holds import SWEEP_MINUTE as NUMBER_HOLD_SWEEP_MINUTE
 from apps.workers.number_holds import (
     notify_number_hold,
@@ -317,9 +322,11 @@ from apps.workers.own_model_key import (
     push_own_model_key_to_workspace,
     sweep_own_model_workspaces,
 )
+from apps.workers.owner_digest import MORNING_HOUR as OWNER_DIGEST_MORNING_HOUR
+from apps.workers.owner_digest import MORNING_MINUTE as OWNER_DIGEST_MORNING_MINUTE
 from apps.workers.owner_digest import SEND_HOUR as OWNER_DIGEST_HOUR
 from apps.workers.owner_digest import SEND_MINUTE as OWNER_DIGEST_MINUTE
-from apps.workers.owner_digest import send_owner_digests
+from apps.workers.owner_digest import send_morning_digests, send_owner_digests
 from apps.workers.pinned_facts import recompile_pinned_facts
 from apps.workers.pip_notes import (
     SWEEP_HOURS as PIP_NOTES_SWEEP_HOURS,
@@ -586,6 +593,10 @@ FUNCTIONS: list[Any] = [
         # D-841. One call's failed reading read again, queued by `sweep_failed_extractions`.
         reread_call_extraction,
         notify_hot_lead,
+        # D-1048. A finished campaign's bell item and email, queued with its `completed`
+        # write; and the alert settings' "Send me a sample".
+        notify_campaign_finished,
+        send_alert_sample,
         # D-904. Tell my team: a caller's details to the business's verified team address
         # (from the post-call pipeline and the agent's in-call action), and the code that
         # verifies that address.
@@ -1410,6 +1421,23 @@ CRON_JOBS = [
         walk=fleet_wide("one directory read, then one tenant_session per opted-in organization"),
         hour={OWNER_DIGEST_HOUR},
         minute={OWNER_DIGEST_MINUTE},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # The same summary for the accounts that chose the morning (D-1048): yesterday, at 08:02.
+    _cron(
+        traced_job(send_morning_digests),
+        walk=fleet_wide("one directory read, then one tenant_session per opted-in organization"),
+        hour={OWNER_DIGEST_MORNING_HOUR},
+        minute={OWNER_DIGEST_MORNING_MINUTE},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # ALERTS THAT WAITED (D-1048): what quiet hours held or the daily cap folded goes out as one
+    # message once due. Every five minutes, so quiet hours end within five minutes of the hour.
+    # Bounded: one read of the due rows' accounts, at most RELEASE_TENANTS_PER_TICK of them.
+    _cron(
+        traced_job(release_held_alerts),
+        walk=bounded("one directory read of accounts with due alerts, capped per tick"),
+        minute=set(range(1, 60, 5)),
         max_tries=WORKER_MAX_TRIES,
     ),
     # PACK CREDIT PAST ITS EXPIRY (D-840): hourly at :11 (founder, 10 Nov 2026), keyed per

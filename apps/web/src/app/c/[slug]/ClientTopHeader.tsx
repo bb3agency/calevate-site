@@ -31,7 +31,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { creditLeftPhrase, useWallet, walletState } from "@/lib/api/wallet";
 import { useLeadNouns } from "@/lib/businessCapabilities";
 import { clientPageTitle } from "@/lib/clientPageTitle";
-import { useDesktopAlerts } from "@/lib/desktopAlerts";
+import { usePersonDesktopAlerts } from "@/lib/desktopAlerts";
 
 import { consoleHref } from "./ClientAnnouncements";
 import { HOME } from "./_ui/copy";
@@ -54,8 +54,9 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
   const attention = useAttention(session);
   const title = clientPageTitle(slug, pathname, useLeadNouns());
 
-  // New attention items also become desktop notifications, once turned on in Alerts.
-  useDesktopAlerts(slug, attention.data, href);
+  // New attention items also become desktop notifications, once turned on in Alerts, for
+  // the rows this person left on (D-1048).
+  usePersonDesktopAlerts(session, attention.data, href);
 
   return (
     // The header spans the window (its border and background are the shell's, not the

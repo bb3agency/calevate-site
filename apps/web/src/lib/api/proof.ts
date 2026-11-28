@@ -23,6 +23,7 @@ export type FleetReplySpeed = Schemas["FleetReplySpeedOut"];
 export type CostPerResult = Schemas["CostPerResultOut"];
 export type CostWindow = Schemas["CostWindowOut"];
 export type DailySummarySetting = Schemas["DailySummaryOut"];
+export type DailySummarySlot = DailySummarySetting["slot"];
 
 export const DAILY_SUMMARY_PATH = "/v1/notifications/daily-summary";
 
@@ -83,10 +84,11 @@ export function useDailySummary(
 export function useSetDailySummary(session: Session) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (enabled: boolean) =>
+    // A bare boolean is the switch alone; an object also moves the time (D-1048).
+    mutationFn: (input: boolean | { enabled: boolean; slot: DailySummarySlot }) =>
       apiRequest<DailySummarySetting>(session, DAILY_SUMMARY_PATH, {
         method: "PUT",
-        body: { enabled },
+        body: typeof input === "boolean" ? { enabled: input } : input,
       }),
     onSuccess: (data) => client.setQueryData(proofKeys.summary(session.orgSlug), data),
   });

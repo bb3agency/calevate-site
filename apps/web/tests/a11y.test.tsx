@@ -76,6 +76,7 @@ import PipQualityPage from "@/app/admin/ops/pip-quality/page";
 import CallMistakesPage from "@/app/admin/ops/call-mistakes/page";
 import ReplySpeedPage from "@/app/admin/ops/reply-speed/page";
 import { DAILY_SUMMARY_PATH } from "@/lib/api/proof";
+import { ALERTS_PAGE_READS } from "./fixtures/alertPreferences";
 import KitPage from "@/app/admin/ops/kit/page";
 import WhatsAppAdminPage from "@/app/admin/ops/whatsapp/page";
 import SpokenStylePage from "@/app/admin/ops/spoken-style/page";
@@ -4043,7 +4044,8 @@ const CLIENT_SCREENS: Screen[] = [
     routes: {
       "/v1/me": ME,
       "/v1/team-alerts/contacts": teamAlertReads()["/v1/team-alerts/contacts"],
-      [DAILY_SUMMARY_PATH]: { enabled: false, email_addresses: 1, whatsapp: true },
+      [DAILY_SUMMARY_PATH]: { enabled: false, slot: "evening", email_addresses: 1, whatsapp: true },
+      ...ALERTS_PAGE_READS,
       "/v1/compliance/whatsapp-alerts": {
         status: "none",
         channel: null,

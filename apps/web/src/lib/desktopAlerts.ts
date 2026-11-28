@@ -18,10 +18,12 @@
  * window or blocked site data simply means "off".
  */
 
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 
+import { computerAllows, useAlertPreferences } from "@/lib/api/alertPreferences";
 import type { AttentionKind, AttentionQueue } from "@/lib/api/attention";
+import type { Session } from "@/lib/api/client";
 
 const KEY = (slug: string) => `calevate.desktopAlerts.${slug}`;
 const EVENT = "calevate:desktop-alerts";
@@ -103,7 +105,12 @@ export function turnOffDesktopAlerts(slug: string): void {
  * Mounted once in the console shell: watches the queue the bell already polls and raises
  * a notification for each item that arrives while the tab is open.
  */
-export function useDesktopAlerts(slug: string, queue: AttentionQueue | undefined, href: (path: string) => string): void {
+export function useDesktopAlerts(
+  slug: string,
+  queue: AttentionQueue | undefined,
+  href: (path: string) => string,
+  allows: (kind: AttentionKind) => boolean = () => true,
+): void {
   const state = useDesktopAlertState(slug);
   const seen = useRef<Set<string> | null>(null);
   const router = useRouter();
@@ -118,7 +125,9 @@ export function useDesktopAlerts(slug: string, queue: AttentionQueue | undefined
       return;
     }
     const known = seen.current;
-    const fresh = items.filter((item) => !known.has(item.id) && ALERT_KINDS.has(item.kind));
+    const fresh = items.filter(
+      (item) => !known.has(item.id) && ALERT_KINDS.has(item.kind) && allows(item.kind),
+    );
     for (const id of ids) known.add(id);
     if (state !== "on" || fresh.length === 0) return;
     for (const item of fresh) {
@@ -130,5 +139,20 @@ export function useDesktopAlerts(slug: string, queue: AttentionQueue | undefined
         note.close();
       };
     }
-  }, [queue, state, slug, href, router]);
+  }, [queue, state, slug, href, router, allows]);
+}
+
+/**
+ * `useDesktopAlerts` for the signed-in person: a row of their alert table whose "Computer"
+ * cell is off never pops up (D-1048). The table is read only while pop-ups are on.
+ */
+export function usePersonDesktopAlerts(
+  session: Session,
+  queue: AttentionQueue | undefined,
+  href: (path: string) => string,
+): void {
+  const on = useDesktopAlertState(session.orgSlug) === "on";
+  const prefs = useAlertPreferences(session, on).data;
+  const allows = useCallback((kind: AttentionKind) => computerAllows(prefs, kind), [prefs]);
+  useDesktopAlerts(session.orgSlug, queue, href, allows);
 }

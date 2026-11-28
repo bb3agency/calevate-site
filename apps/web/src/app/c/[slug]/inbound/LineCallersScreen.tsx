@@ -28,25 +28,27 @@ import { useLineCallers, type OwedCaller } from "@/lib/api/inboundToday";
 import { makeCallHref } from "@/lib/api/oneCall";
 import { useClientRealm } from "@/lib/api/session";
 
-type Show = "missed" | "asked";
+type Show = "missed" | "asked" | "message";
 
 const SHOW_CHIPS: { value: Show; label: string }[] = [
   { value: "missed", label: "Missed" },
   { value: "asked", label: "Asked for a call back" },
+  { value: "message", label: "Left a message" },
 ];
 
 const REASON_WORDS: Record<OwedCaller["reason"], string> = {
   not_answered: "Not answered",
   hung_up_early: "Hung up quickly",
   asked: "Asked for a call back",
+  message: "Left you a message",
 };
 
 function kindOf(caller: OwedCaller): Show {
-  return caller.reason === "asked" ? "asked" : "missed";
+  return caller.reason === "asked" || caller.reason === "message" ? caller.reason : "missed";
 }
 
 function initialShow(param: string | null): Show | null {
-  return param === "missed" || param === "asked" ? param : null;
+  return param === "missed" || param === "asked" || param === "message" ? param : null;
 }
 
 export function LineCallersScreen({ slug, lineId }: { slug: string; lineId: string }) {

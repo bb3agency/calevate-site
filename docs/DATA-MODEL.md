@@ -1947,6 +1947,16 @@ announcement_dismissals(id, tenant_id, announcement_id FK CASCADE, created_at, u
   UNIQUE(tenant_id, announcement_id))          -- FORCE-RLS; who pressed it is the audit row
 notification_reads(id, tenant_id, user_id FK users CASCADE, seen_through, created_at,
   updated_at, UNIQUE(tenant_id, user_id))      -- FORCE-RLS; one high-water mark per person
+notification_preferences(id, tenant_id, user_id FK users CASCADE, off jsonb ['kind:channel'],
+  quiet_enabled, quiet_start_hour, quiet_end_hour, daily_cap 1..100, created_at, updated_at,
+  UNIQUE(tenant_id, user_id))                  -- FORCE-RLS (D-1048); the first owner's row
+                                               -- decides the account email and WhatsApp
+notification_deliveries(id, tenant_id, kind, channel IN (bell, email, whatsapp), dedupe_key,
+  state IN (sent, held, folded, released), title, detail, href, ref jsonb (ids only), due_at,
+  released_at, created_at, updated_at, UNIQUE(tenant_id, channel, dedupe_key))
+                                               -- FORCE-RLS (D-1048); the alert gate's answer
+                                               -- per alert, and bell items a job posted
+organizations.owner_digest_slot IN (evening, morning) DEFAULT evening  -- D-1048
 calls.follow_up_state NULL IN (resolved, needs_you), follow_up_set_at, follow_up_set_by
   NULL FK users SET NULL  -- a person's mark, never rewritten by the pipeline
 ```

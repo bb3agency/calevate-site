@@ -13247,10 +13247,51 @@ export interface paths {
         get: operations["get_daily_summary_v1_notifications_daily_summary_get"];
         /**
          * Turn the owner's daily summary on or off
-         * @description Off for every account until its owner turns it on. Once a day in the evening (IST) it sends the day's calls, leads, spend and waiting call-backs by email, and by WhatsApp where the owner opted in to WhatsApp alerts.
+         * @description Off for every account until its owner turns it on. Once a day, in the evening (the day so far) or the morning (the day before), IST, it sends calls, leads, spend and waiting call-backs by email, and by WhatsApp where the owner opted in to WhatsApp alerts.
          */
         put: operations["set_daily_summary_v1_notifications_daily_summary_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/notifications/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** This person's alert table: what reaches the bell, this computer, email, WhatsApp */
+        get: operations["get_preferences_v1_notifications_preferences_get"];
+        /**
+         * Save this person's alert table, quiet hours and daily email limit
+         * @description Always-on alerts cannot be switched off (`alert_always_on`). Email, WhatsApp, quiet hours and the daily limit are the account owner's (`alert_owner_only`).
+         */
+        put: operations["put_preferences_v1_notifications_preferences_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/notifications/preferences/sample": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send me a sample alert on one channel, marked as a sample
+         * @description Email goes to the signed-in person's own address. WhatsApp goes only to the owner who agreed to WhatsApp alerts. At most one per channel every few minutes.
+         */
+        post: operations["send_sample_v1_notifications_preferences_sample_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -17804,6 +17845,21 @@ export interface components {
             /** Stage */
             stage: string;
         };
+        /** AlertKindOut */
+        AlertKindOut: {
+            /** Always */
+            always: boolean;
+            /** Cells */
+            cells: {
+                [key: string]: "on" | "off" | "always" | "none";
+            };
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Why */
+            why: string | null;
+        };
         /**
          * AlertOptInOut
          * @description Never the number. `status: "none"` means this person has never been asked, which
@@ -17828,6 +17884,48 @@ export interface components {
             notice_version: string | null;
             /** Status */
             status: string;
+        };
+        /** AlertPreferencesIn */
+        AlertPreferencesIn: {
+            /**
+             * Daily Cap
+             * @default 12
+             */
+            daily_cap: number;
+            /** Off */
+            off?: string[];
+            /**
+             * Quiet Enabled
+             * @default false
+             */
+            quiet_enabled: boolean;
+            /**
+             * Quiet End Hour
+             * @default 8
+             */
+            quiet_end_hour: number;
+            /**
+             * Quiet Start Hour
+             * @default 21
+             */
+            quiet_start_hour: number;
+        };
+        /** AlertPreferencesOut */
+        AlertPreferencesOut: {
+            /** Account Editable */
+            account_editable: boolean;
+            /** Daily Cap */
+            daily_cap: number;
+            /** Governs Account */
+            governs_account: boolean;
+            /** Kinds */
+            kinds: components["schemas"]["AlertKindOut"][];
+            /** Quiet Enabled */
+            quiet_enabled: boolean;
+            /** Quiet End Hour */
+            quiet_end_hour: number;
+            /** Quiet Start Hour */
+            quiet_start_hour: number;
         };
         /**
          * AlertReport
@@ -24167,6 +24265,8 @@ export interface components {
         DailySummaryIn: {
             /** Enabled */
             enabled: boolean;
+            /** Slot */
+            slot?: ("evening" | "morning") | null;
         };
         /**
          * DailySummaryOut
@@ -24177,6 +24277,11 @@ export interface components {
             email_addresses: number;
             /** Enabled */
             enabled: boolean;
+            /**
+             * Slot
+             * @enum {string}
+             */
+            slot: "evening" | "morning";
             /** Whatsapp */
             whatsapp: boolean;
         };
@@ -31546,7 +31651,7 @@ export interface components {
              * Source
              * @enum {string}
              */
-            source: "attention" | "announcement" | "plan" | "call_lines" | "campaign";
+            source: "attention" | "announcement" | "plan" | "call_lines" | "campaign" | "posted" | "milestone" | "reminder" | "opt_out";
             /** Title */
             title: string;
             /**
@@ -32358,7 +32463,7 @@ export interface components {
              * Reason
              * @enum {string}
              */
-            reason: "not_answered" | "hung_up_early" | "asked";
+            reason: "not_answered" | "hung_up_early" | "asked" | "message";
             /** Tries */
             tries: number;
         };
@@ -35597,6 +35702,19 @@ export interface components {
             min_history_days: number;
             /** Window Days */
             window_days: number;
+        };
+        /** SampleIn */
+        SampleIn: {
+            /**
+             * Channel
+             * @enum {string}
+             */
+            channel: "email" | "whatsapp";
+        };
+        /** SampleOut */
+        SampleOut: {
+            /** Queued */
+            queued: boolean;
         };
         /** SaveIn */
         SaveIn: {
@@ -66906,6 +67024,101 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DailySummaryOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_preferences_v1_notifications_preferences_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertPreferencesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    put_preferences_v1_notifications_preferences_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlertPreferencesIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertPreferencesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    send_sample_v1_notifications_preferences_sample_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SampleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SampleOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
