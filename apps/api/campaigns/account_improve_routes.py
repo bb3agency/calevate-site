@@ -266,9 +266,10 @@ async def get_account_improve(session: Session, principal: Reader) -> AccountImp
 
 class WeekFiguresOut(_Out):
     """The counts a paragraph was written from (`weekly_summary.WeekFigures`); a field a
-    row stored before it existed reads as null."""
+    row stored before it existed reads as null, and a stored key this model no longer names
+    is dropped where the row is read (`_week_figures`), so the model itself still forbids
+    unknown fields."""
 
-    model_config = ConfigDict(extra="ignore")
     calls: int | None = None
     answered: int | None = None
     answer_rate: float | None = None
@@ -289,6 +290,13 @@ class WeeklySummaryOut(_Out):
     created_at: datetime
 
 
+def _week_figures(stored: dict[str, object]) -> WeekFiguresOut:
+    """A stored row's figures, with only the keys the model names."""
+    return WeekFiguresOut.model_validate(
+        {k: v for k, v in stored.items() if k in WeekFiguresOut.model_fields}
+    )
+
+
 @router.get(
     "/weekly-summaries",
     response_model=list[WeeklySummaryOut],
@@ -305,7 +313,7 @@ async def list_weekly_summaries(
             id=s.id,
             week_start=s.week_start,
             paragraph=s.summary,
-            figures=WeekFiguresOut.model_validate(s.figures),
+            figures=_week_figures(s.figures),
             created_at=s.created_at,
         )
         for s in await weekly_summary.list_summaries(session, limit=limit)

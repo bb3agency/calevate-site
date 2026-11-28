@@ -216,8 +216,13 @@ class TestWiring:
         RAISED 55 -> 56 for `GET /v1/public/business-types`, a third credential-less read
         beside the rate card and the status page: signup renders the business-type list
         before its caller has an organization. Its body is `calevate_shared/verticals.json`
-        as shipped, identical for everyone, and nothing about the caller is read."""
-        assert len(exempt) <= 56, sorted(exempt)
+        as shipped, identical for everyone, and nothing about the caller is read.
+
+        RAISED 56 -> 57 for `POST /v1/auth/signup/slug-availability` (wave A, W1): signup says
+        a web address is taken before the form is sent. It needs the signed-in identity of the
+        person signing up (`current_identity`), answers only taken or free for one slug, and
+        is rate limited like signup itself."""
+        assert len(exempt) <= 57, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------
