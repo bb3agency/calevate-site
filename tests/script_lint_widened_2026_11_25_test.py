@@ -74,11 +74,14 @@ def test_a_judged_detail_asked_in_the_instruction_and_line_is_found() -> None:
 
 def test_the_repair_hears_a_judged_ask() -> None:
     """FAILS IF: the targeted repair (`script_checks.repairs`, `heal_findings`) is not told about a
-    line that asks a judged detail, so it never rewrites it."""
+    line that asks a judged detail, so it never rewrites it; or it is handed the step's
+    instruction, which since 0.5.94 a repair never rewrites (it stays a warning)."""
     script = _one(INSTRUCTION, LISTED)
     repaired = script_checks.repairs(script, LintContext(judged=JUDGED))
     assert "stages.0.scripts.en-IN" in _paths(repaired)
-    assert "stages.0.instruction" in _paths(heal_findings(script, LintContext(judged=JUDGED)))
+    healed = _paths(heal_findings(script, LintContext(judged=JUDGED)))
+    assert "stages.0.scripts.en-IN" in healed
+    assert "stages.0.instruction" not in healed
 
 
 def test_the_job_names_its_judged_details() -> None:

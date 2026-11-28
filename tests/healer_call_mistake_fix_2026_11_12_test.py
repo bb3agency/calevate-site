@@ -38,7 +38,7 @@ from apps.workers import mistake_fix, script_writer, step_writer
 from apps.workers import script_heal as heal_job
 from apps.workers.extraction import AssistCapability
 from apps.workers.script_assist import JsonAnswer
-from calevate_shared.call_script import CallScript, ConversationStage
+from calevate_shared.call_script import CallScript, ConversationStage, StepExamples
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import create_engine, text
 from tests.a2p_declaration_test import _org_headers
@@ -47,8 +47,10 @@ from tests.conftest import _owner_of, create_org_with_receptionist, turn_pip_on_
 pytestmark = [pytest.mark.rls]
 
 KIND = "opened_again"
-GREETS = "Greet the caller warmly and ask what they need today."
-FIXED = "Ask what they need today, in one short question."
+#: A step's spoken line that greets again after the opening. Since 0.5.94 a repair never rewrites
+#: a step's instruction, so the fault a repair can clear sits in a line the agent says.
+GREETS = "Hello and welcome! What do you need today?"
+FIXED = "What do you need today?"
 
 
 def _script(first: str = GREETS) -> CallScript:
@@ -56,7 +58,12 @@ def _script(first: str = GREETS) -> CallScript:
         schema_version=2,
         opening_line="Namaste, this is Asha from Sunrise Homes.",
         stages=[
-            ConversationStage(id="need", name="Their need", instruction=first),
+            ConversationStage(
+                id="need",
+                name="Their need",
+                instruction="Find out what they need.",
+                examples={"en-IN": StepExamples(turns=[first])},
+            ),
             ConversationStage(id="close", name="Close", instruction="Thank them and end the call."),
         ],
     )
@@ -495,12 +502,13 @@ async def test_the_repair_changes_only_the_named_line_saves_it_and_meters_it(
     assert (waiting.state, waiting.attempts) == ("fixing", 1)
     assert await _run_repair(tenant_id, line_id) == "repaired"
     [change] = seen["changes"]
-    assert "stages.0.instruction" in change and "greets" in change
+    assert "stages.0.examples.en-IN.turns.0" in change and "greets" in change
     assert seen["metered"] == [tenant_id]
     async with tenant_session(tenant_id) as session:
         line = await lines.read_line(session, line_id)
     assert line.script is not None
-    assert line.script.stages[0].instruction == FIXED
+    assert line.script.stages[0].examples["en-IN"].turns[0] != GREETS
+    assert line.script.stages[0].instruction == "Find out what they need."
     assert line.script.opening_line == _script().opening_line
     assert line.proposal is None, "nothing waits for the owner to keep"
     fix = await _step(tenant_id, agent_id)
@@ -652,7 +660,7 @@ async def test_a_fix_live_from_before_is_settled_and_can_still_be_undone() -> No
     assert done.status_code == 200, done.text
     async with tenant_session(tenant_id) as session:
         script = (await script_builder.load_agent_script(session, agent_id)).script
-    assert script.stages[0].instruction == GREETS
+    assert script.stages[0].examples["en-IN"].turns == [GREETS]
     undone = await _fix(tenant_id, agent_id)
     assert (undone.state, undone.ended_because, undone.version_before) == (
         "rolled_back",
@@ -723,7 +731,7 @@ async def test_a_dry_run_names_the_lines_and_leaves_no_fix_in_progress(
             )
         ).scalar_one()
     assert closed is not None and closed.state == "resolved" and closed.last_outcome == "shadow"
-    assert "stages.0.instruction" in detail
+    assert "stages.0.examples.en-IN.turns.0" in detail
     async with tenant_session(tenant_id) as session:
         left = (
             await session.execute(
