@@ -394,6 +394,12 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
 # `dict[str, Any]` response fields: the serializer cannot vouch for their contents, so
 # each one is acknowledged here with the reason it is not a redaction bypass.
 ACKNOWLEDGED_PASSTHROUGH: dict[str, str] = {
+    "FeedEventOut.data": (
+        "an event's base body as a webhook carries it (WEBHOOKS §1.2): `feed.serialize` masks "
+        "`phone` (`lead_payload`, a key never reads it raw: `calls:read_raw` is never "
+        "grantable) and the pipeline writes the summary redacted; the transcript and the "
+        "recording link are added per endpoint at delivery, never to the stored event"
+    ),
     **dict.fromkeys(
         (
             "CallWordOut.value",

@@ -6,9 +6,7 @@ the integrations half and is called from there. It mounts nothing itself:
 
 * `create_machine_endpoint`, `deactivate_machine_endpoint` — behind the `webhooks:manage`
   scope (`MACHINE_SCOPE`).
-* `build_events_router(principal_dep, consumer_id_of, may_read_raw_phone)` — the feed's
-  three routes, with the key's own auth dependency passed in, so B1's router includes it
-  with `router.include_router(build_events_router(...))`.
+* `feed_page` and the feed's models — the three feed routes are in `public_api/routes.py`.
 
 **A key creates only endpoints that carry no call content.** A person turning on a
 recording link or a transcript for a destination types an emailed code for that act
@@ -20,17 +18,15 @@ endpoint a key created: a destination a person set up is the person's to remove.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
-from typing import Annotated, Any, Final, Literal
+from collections.abc import Sequence
+from typing import Any, Final, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
 from apps.api.core.context import Principal
-from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.schemas import Strict
 from apps.api.integrations import feed, service
@@ -134,7 +130,7 @@ async def deactivate_machine_endpoint(
     return changed
 
 
-# --- the events feed's routes, for the `/api/v1` router ------------------------------
+# --- the events feed, as the `/api/v1` routes answer it ---------------------------------
 
 FeedEventName = Literal[
     "lead.created",
@@ -178,7 +174,8 @@ class FeedCursorOut(Strict):
     after_event_id: UUID | None
 
 
-def _page(rows: list[feed.FeedEvent], *, tenant_id: UUID, raw_phone: bool) -> FeedPageOut:
+def feed_page(rows: list[feed.FeedEvent], *, tenant_id: UUID, raw_phone: bool) -> FeedPageOut:
+    """One page of the feed as a key reads it."""
     return FeedPageOut(
         events=[
             FeedEventOut.model_validate(
@@ -188,69 +185,6 @@ def _page(rows: list[feed.FeedEvent], *, tenant_id: UUID, raw_phone: bool) -> Fe
         ],
         next_after=rows[-1].id if rows else None,
     )
-
-
-_Session = Annotated[AsyncSession, Depends(db)]
-
-
-def build_events_router(
-    principal_dep: Callable[..., Any],
-    *,
-    consumer_id_of: Callable[[Principal], UUID],
-    may_read_raw_phone: Callable[[Principal], bool] = lambda _principal: False,
-) -> APIRouter:
-    """`GET /events`, `GET /events/next`, `POST /events/next/ack` for a key-authenticated
-    router. `principal_dep` is the key's auth dependency (it enforces `FEED_SCOPE`);
-    `consumer_id_of` names the cursor (the key id); `may_read_raw_phone` says whether this
-    key may read full numbers rather than `[redacted]`."""
-    router = APIRouter(tags=["events"])
-    reader = Depends(principal_dep)
-
-    @router.get("/events", response_model=FeedPageOut, summary="Events after a known event")
-    async def list_feed_events(
-        session: _Session,
-        principal: Annotated[Principal, reader],
-        after: Annotated[UUID | None, Query()] = None,
-        type: Annotated[FeedEventName | None, Query()] = None,  # noqa: A002 - the published name
-        limit: Annotated[int, Query(ge=1, le=feed.FEED_PAGE_MAX)] = feed.FEED_PAGE_DEFAULT,
-    ) -> FeedPageOut:
-        assert principal.tenant_id is not None
-        rows = await feed.list_events(session, after=after, event_type=type, limit=limit)
-        return _page(rows, tenant_id=principal.tenant_id, raw_phone=may_read_raw_phone(principal))
-
-    @router.get(
-        "/events/next", response_model=FeedPageOut, summary="Events after this key's cursor"
-    )
-    async def next_feed_events(
-        session: _Session,
-        principal: Annotated[Principal, reader],
-        type: Annotated[FeedEventName | None, Query()] = None,  # noqa: A002 - the published name
-        limit: Annotated[int, Query(ge=1, le=feed.FEED_PAGE_MAX)] = feed.FEED_PAGE_DEFAULT,
-    ) -> FeedPageOut:
-        assert principal.tenant_id is not None
-        rows = await feed.next_events(
-            session, consumer_id=consumer_id_of(principal), event_type=type, limit=limit
-        )
-        return _page(rows, tenant_id=principal.tenant_id, raw_phone=may_read_raw_phone(principal))
-
-    @router.post(
-        "/events/next/ack",
-        response_model=FeedCursorOut,
-        summary="Move this key's cursor to an event it processed",
-    )
-    async def ack_feed_events(
-        payload: FeedAckIn, session: _Session, principal: Annotated[Principal, reader]
-    ) -> FeedCursorOut:
-        assert principal.tenant_id is not None
-        cursor = await feed.ack(
-            session,
-            tenant_id=principal.tenant_id,
-            consumer_id=consumer_id_of(principal),
-            event_id=payload.event_id,
-        )
-        return FeedCursorOut(after_event_id=cursor.after_event_id)
-
-    return router
 
 
 __all__ = [
@@ -263,7 +197,7 @@ __all__ = [
     "FeedCursorOut",
     "FeedEventOut",
     "FeedPageOut",
-    "build_events_router",
     "create_machine_endpoint",
     "deactivate_machine_endpoint",
+    "feed_page",
 ]

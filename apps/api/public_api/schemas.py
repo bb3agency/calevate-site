@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
-from pydantic import Field, StringConstraints
+from pydantic import Field, HttpUrl, StringConstraints
 
 from apps.api.campaigns.routes import (
     MAX_CONTACT_CUSTOM_FIELDS,
@@ -25,6 +25,8 @@ from apps.api.campaigns.routes import (
 )
 from apps.api.core.schemas import Instant, Strict
 from apps.api.crm.one_call import DETAILS_MAX, NAME_MAX, REASON_MAX
+from apps.api.integrations.routes import EventChoice
+from apps.api.integrations.service import EVENT_TYPES
 
 PAGE_DEFAULT: Final = 50
 PAGE_MAX: Final = 100
@@ -359,6 +361,24 @@ class PublicCampaignStateOut(Strict):
     status: str
 
 
+class PublicWebhookCreateIn(Strict):
+    """A destination this key's server will receive events at. `["*"]` is every event
+    there is now; `call.recording_ready` is refused, because a recording link is switched
+    on by a person with a code, never by a key."""
+
+    url: HttpUrl
+    events: list[EventChoice] = Field(min_length=1, max_length=len(EVENT_TYPES) + 1)
+    auto_subscribe_new_events: bool = False
+
+
+class PublicWebhookOut(Strict):
+    object: Literal["webhook"] = "webhook"
+    id: UUID
+    events: list[str] = Field(max_length=len(EVENT_TYPES))
+    #: The signing secret, shown this once: store it to check each delivery's signature.
+    secret: str
+
+
 __all__ = [
     "PAGE_DEFAULT",
     "PAGE_MAX",
@@ -400,4 +420,6 @@ __all__ = [
     "PublicPlaceCallIn",
     "PublicPlaceCallOut",
     "PublicTranscriptTurnOut",
+    "PublicWebhookCreateIn",
+    "PublicWebhookOut",
 ]

@@ -39,6 +39,9 @@ GRANTABLE_SCOPES: Final[frozenset[Permission]] = frozenset(
         "leads:write",
         "leads:dispatch",
         "wallet:read",
+        # Only `/api/v1/webhooks` asks it of a key: adding and removing the destinations
+        # events go to, as the Integrations screen does for a person. Held by the owner.
+        "org:manage",
     }
 )
 NEVER_GRANTABLE: Final[frozenset[str]] = frozenset({"calls:read_raw"})

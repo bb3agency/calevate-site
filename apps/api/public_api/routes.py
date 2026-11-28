@@ -47,6 +47,7 @@ from apps.api.db.session import tenant_session
 from apps.api.ingest import portals
 from apps.api.ingest.routes import META_SOURCE
 from apps.api.ingest.service import ingest_lead, load_config
+from apps.api.integrations import feed, machine
 from apps.api.public_api import schemas as s
 from apps.api.public_api.deps import (
     KeyCall,
@@ -980,6 +981,117 @@ async def stop_campaign(
     await _bound_campaign(session, call, campaign_id)
     await campaign_routes.stop(campaign_id, session, request, principal)
     return await _state(session, campaign_id)
+
+
+# ============================================================= webhooks, events ====
+# The integrations half is `integrations/machine.py`: a key-made endpoint carries no call
+# content, and a key removes only endpoints a key made. Managing destinations is
+# `org:manage`, the permission the Integrations screen asks; the feed is `org:read`. A key
+# never reads full numbers in the feed: `calls:read_raw` is never grantable.
+
+
+@router.post(
+    "/webhooks",
+    response_model=s.PublicWebhookOut,
+    status_code=201,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Send events to your server; the signing secret is shown this once",
+)
+async def create_webhook(
+    payload: s.PublicWebhookCreateIn,
+    request: Request,
+    call: KeyCall,
+    session: KeyDb,
+    principal: Principal = Depends(requires_key("org:manage")),
+) -> s.PublicWebhookOut:
+    created = await machine.create_machine_endpoint(
+        session,
+        actor=principal,
+        tenant_id=call.key.tenant_id,
+        key_id=call.key.id,
+        url=str(payload.url),
+        events=list(payload.events),
+        auto_subscribe_new_events=payload.auto_subscribe_new_events,
+        ip=client_request_ip(request),
+    )
+    return s.PublicWebhookOut(id=created.id, events=list(created.events), secret=created.secret)
+
+
+@router.delete(
+    "/webhooks/{webhook_id}",
+    status_code=204,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Stop sending to a destination a key made; one a person set up is theirs",
+)
+async def delete_webhook(
+    webhook_id: UUID,
+    request: Request,
+    call: KeyCall,
+    session: KeyDb,
+    principal: Principal = Depends(requires_key("org:manage")),
+) -> Response:
+    await machine.deactivate_machine_endpoint(
+        session,
+        actor=principal,
+        tenant_id=call.key.tenant_id,
+        key_id=call.key.id,
+        endpoint_id=webhook_id,
+        ip=client_request_ip(request),
+    )
+    return Response(status_code=204)
+
+
+@router.get(
+    "/events",
+    response_model=machine.FeedPageOut,
+    openapi_extra=permission_meta("org:read"),
+    summary="Events after a known event, oldest first",
+)
+async def list_events(
+    call: KeyCall,
+    session: KeyDb,
+    after: UUID | None = Query(None, description="An event id; read the events after it"),
+    type: machine.FeedEventName | None = Query(None),  # noqa: A002 - the published name
+    limit: int = Query(feed.FEED_PAGE_DEFAULT, ge=1, le=feed.FEED_PAGE_MAX),
+    _: Principal = Depends(requires_key("org:read")),
+) -> machine.FeedPageOut:
+    rows = await feed.list_events(session, after=after, event_type=type, limit=limit)
+    return machine.feed_page(rows, tenant_id=call.key.tenant_id, raw_phone=False)
+
+
+@router.get(
+    "/events/next",
+    response_model=machine.FeedPageOut,
+    openapi_extra=permission_meta("org:read"),
+    summary="Events after this key's cursor; the cursor moves only on ack",
+)
+async def next_events(
+    call: KeyCall,
+    session: KeyDb,
+    type: machine.FeedEventName | None = Query(None),  # noqa: A002 - the published name
+    limit: int = Query(feed.FEED_PAGE_DEFAULT, ge=1, le=feed.FEED_PAGE_MAX),
+    _: Principal = Depends(requires_key("org:read")),
+) -> machine.FeedPageOut:
+    rows = await feed.next_events(session, consumer_id=call.key.id, event_type=type, limit=limit)
+    return machine.feed_page(rows, tenant_id=call.key.tenant_id, raw_phone=False)
+
+
+@router.post(
+    "/events/next/ack",
+    response_model=machine.FeedCursorOut,
+    openapi_extra=permission_meta("org:read"),
+    summary="Move this key's cursor to an event it processed (never backwards)",
+)
+async def ack_events(
+    payload: machine.FeedAckIn,
+    call: KeyCall,
+    session: KeyDb,
+    _: Principal = Depends(requires_key("org:read")),
+) -> machine.FeedCursorOut:
+    cursor = await feed.ack(
+        session, tenant_id=call.key.tenant_id, consumer_id=call.key.id, event_id=payload.event_id
+    )
+    return machine.FeedCursorOut(after_event_id=cursor.after_event_id)
 
 
 __all__ = ["WAIT_MAX_S", "router"]

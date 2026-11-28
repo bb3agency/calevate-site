@@ -1,6 +1,102 @@
 {
   "components": {
     "schemas": {
+      "FeedAckIn": {
+        "additionalProperties": false,
+        "properties": {
+          "event_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id"
+        ],
+        "type": "object"
+      },
+      "FeedCursorOut": {
+        "additionalProperties": false,
+        "properties": {
+          "after_event_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "after_event_id"
+        ],
+        "type": "object"
+      },
+      "FeedEventOut": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "data": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "event": {
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "event_id",
+          "event",
+          "account_id",
+          "created_at",
+          "data"
+        ],
+        "type": "object"
+      },
+      "FeedPageOut": {
+        "additionalProperties": false,
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/FeedEventOut"
+            },
+            "type": "array"
+          },
+          "next_after": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "events",
+          "next_after"
+        ],
+        "type": "object"
+      },
       "PublicAccountOut": {
         "additionalProperties": false,
         "properties": {
@@ -1748,6 +1844,85 @@
           "text_redacted"
         ],
         "type": "object"
+      },
+      "PublicWebhookCreateIn": {
+        "additionalProperties": false,
+        "properties": {
+          "auto_subscribe_new_events": {
+            "default": false,
+            "type": "boolean"
+          },
+          "events": {
+            "items": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "lead.created",
+                    "lead.updated",
+                    "call.completed",
+                    "call.updated",
+                    "call.recording_ready",
+                    "campaign.completed",
+                    "call.not_connected",
+                    "call.inbound_missed",
+                    "campaign.status_changed",
+                    "lead.consent_changed",
+                    "dnc.added"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "const": "*",
+                  "type": "string"
+                }
+              ]
+            },
+            "maxItems": 12,
+            "minItems": 1,
+            "type": "array"
+          },
+          "url": {
+            "format": "uri",
+            "maxLength": 2083,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "events"
+        ],
+        "type": "object"
+      },
+      "PublicWebhookOut": {
+        "additionalProperties": false,
+        "properties": {
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 11,
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "object": {
+            "const": "webhook",
+            "default": "webhook",
+            "type": "string"
+          },
+          "secret": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "events",
+          "secret"
+        ],
+        "type": "object"
       }
     }
   },
@@ -2472,6 +2647,180 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/api/v1/events": {
+      "get": {
+        "operationId": "list_events_api_v1_events_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "lead.created",
+                    "lead.updated",
+                    "call.completed",
+                    "call.updated",
+                    "call.recording_ready",
+                    "campaign.completed",
+                    "call.not_connected",
+                    "call.inbound_missed",
+                    "campaign.status_changed",
+                    "lead.consent_changed",
+                    "dnc.added"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedPageOut"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/api/v1/events/next": {
+      "get": {
+        "operationId": "next_events_api_v1_events_next_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "lead.created",
+                    "lead.updated",
+                    "call.completed",
+                    "call.updated",
+                    "call.recording_ready",
+                    "campaign.completed",
+                    "call.not_connected",
+                    "call.inbound_missed",
+                    "campaign.status_changed",
+                    "lead.consent_changed",
+                    "dnc.added"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedPageOut"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/api/v1/events/next/ack": {
+      "post": {
+        "operationId": "ack_events_api_v1_events_next_ack_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedAckIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedCursorOut"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "org:read"
+      }
+    },
     "/api/v1/inbound-calls": {
       "get": {
         "operationId": "list_inbound_calls_api_v1_inbound_calls_get",
@@ -2741,15 +3090,74 @@
         },
         "x-calevate-permission": "agents:read"
       }
+    },
+    "/api/v1/webhooks": {
+      "post": {
+        "operationId": "create_webhook_api_v1_webhooks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicWebhookCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicWebhookOut"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/api/v1/webhooks/{webhook_id}": {
+      "delete": {
+        "operationId": "delete_webhook_api_v1_webhooks__webhook_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {},
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            }
+          }
+        },
+        "x-calevate-permission": "org:manage"
+      }
     }
   },
   "x-request-schemas": [
+    "FeedAckIn",
     "PublicAddContactsIn",
     "PublicContactIn",
     "PublicCreateLeadIn",
     "PublicDncAddIn",
     "PublicDncCheckIn",
     "PublicDncRemoveIn",
-    "PublicPlaceCallIn"
+    "PublicPlaceCallIn",
+    "PublicWebhookCreateIn"
   ]
 }

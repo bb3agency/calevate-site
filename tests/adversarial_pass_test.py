@@ -1477,6 +1477,7 @@ _NOT_AN_OBJECT_REFERENCE: dict[str, str] = {
     "POST /api/v1/campaigns/{campaign_id}/pause": _PUBLIC_API_SWEPT_BY_KEY,
     "POST /api/v1/campaigns/{campaign_id}/resume": _PUBLIC_API_SWEPT_BY_KEY,
     "POST /api/v1/campaigns/{campaign_id}/stop": _PUBLIC_API_SWEPT_BY_KEY,
+    "DELETE /api/v1/webhooks/{webhook_id}": _PUBLIC_API_SWEPT_BY_KEY,
     "GET /v1/campaigns/{campaign_id}/test-numbers": (
         "the saved test numbers are the caller's own account's (`organizations.test_numbers`, "
         "read under its RLS); the campaign id only says which screen asked, and no row of it "

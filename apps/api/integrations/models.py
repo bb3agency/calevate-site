@@ -129,7 +129,9 @@ class OutboundWebhook(PKMixin, TimestampMixin, Base):
     #: When the failing streak that paused it began; Resume also replays failures from then.
     failing_since: Mapped[datetime | None] = mapped_column()
     #: The API key that created this endpoint through `/api/v1`; NULL when a person did.
-    managed_by_key_id: Mapped[UUID | None] = mapped_column()
+    managed_by_key_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("api_keys.id", ondelete="SET NULL")
+    )
 
 
 class WebhookDelivery(PKMixin, Base):
@@ -254,7 +256,9 @@ class IntegrationEventCursor(Base):
         CheckConstraint("(after_txid IS NULL) = (after_event_id IS NULL)", name="position_paired"),
     )
 
-    consumer_id: Mapped[UUID] = mapped_column(primary_key=True)
+    consumer_id: Mapped[UUID] = mapped_column(
+        ForeignKey("api_keys.id", ondelete="CASCADE"), primary_key=True
+    )
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
     )

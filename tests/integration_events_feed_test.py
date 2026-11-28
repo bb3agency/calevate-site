@@ -51,6 +51,29 @@ async def _endpoint(tenant_id: uuid.UUID) -> uuid.UUID:
     return endpoint_id
 
 
+async def _api_key(tenant_id: uuid.UUID) -> uuid.UUID:
+    """A real `api_keys` row for the account's owner: a cursor and a key-made endpoint
+    both point at one."""
+    key_id = uuid7()
+    async with tenant_session(tenant_id) as session:
+        owner = (
+            await session.execute(
+                text("SELECT user_id FROM memberships WHERE tenant_id = :t LIMIT 1"),
+                {"t": tenant_id},
+            )
+        ).scalar_one()
+        await session.execute(
+            text(
+                "INSERT INTO api_keys (id, tenant_id, created_by, name, display_prefix, "
+                "secret_sha256, scopes, api_version, expires_at) VALUES (:id, :t, :u, 'Feed', "
+                "'cvk_test_x', :digest, ARRAY['org:read'], '2026-12-01', "
+                "now() + interval '90 days')"
+            ),
+            {"id": key_id, "t": tenant_id, "u": owner, "digest": key_id.hex * 2},
+        )
+    return key_id
+
+
 async def _emit(tenant_id: uuid.UUID, *rows: dict[str, object]) -> None:
     async with tenant_session(tenant_id) as session:
         await service.enqueue_events(
@@ -89,7 +112,7 @@ async def test_the_webhook_and_the_feed_carry_one_event_id() -> None:
 
 async def test_a_cursor_moves_on_ack_only_and_never_backwards() -> None:
     tenant_id, _, _ = await _make_tenant()
-    key = uuid.uuid4()
+    key = await _api_key(tenant_id)
     await _emit(tenant_id, _lead(), _lead(), _lead())
 
     async with tenant_session(tenant_id) as session:
@@ -123,7 +146,7 @@ async def test_an_unknown_position_is_refused() -> None:
 async def test_another_account_reads_none_of_the_feed_or_its_cursors() -> None:
     owner, _, _ = await _make_tenant()
     other, _, _ = await _make_tenant()
-    key = uuid.uuid4()
+    key = await _api_key(owner)
     await _emit(owner, _lead())
     async with tenant_session(owner) as session:
         (event,) = await feed.list_events(session)
@@ -182,7 +205,7 @@ async def test_a_key_creates_endpoints_without_call_content_and_removes_only_its
 
     monkeypatch.setattr(service, "assert_public_http_url", _public)
     tenant_id, _, _ = await _make_tenant()
-    key_id = uuid.uuid4()
+    key_id = await _api_key(tenant_id)
     principal = _key_principal(tenant_id)
     with pytest.raises(ProblemError):
         async with tenant_session(tenant_id) as session:
@@ -227,31 +250,3 @@ async def test_a_key_creates_endpoints_without_call_content_and_removes_only_its
         assert await machine.deactivate_machine_endpoint(
             session, actor=principal, tenant_id=tenant_id, key_id=key_id, endpoint_id=created.id
         )
-
-
-async def test_the_router_hook_serves_the_feed_for_a_key() -> None:
-    """`build_events_router` is what the `/api/v1` router mounts; its handlers read the
-    feed for the key the auth dependency names and mask the phone unless told otherwise."""
-    tenant_id, _, _ = await _make_tenant()
-    key = uuid.uuid4()
-    await _emit(tenant_id, _lead())
-    principal = _key_principal(tenant_id)
-
-    router = machine.build_events_router(lambda: principal, consumer_id_of=lambda _p: key)
-    handlers = {route.path: route.endpoint for route in router.routes}  # type: ignore[attr-defined]
-    assert set(handlers) == {"/events", "/events/next", "/events/next/ack"}
-
-    async with tenant_session(tenant_id) as session:
-        page = await handlers["/events/next"](
-            session=session, principal=principal, type=None, limit=10
-        )
-        (item,) = page.events
-        assert item.data["phone"] == "[redacted]" and page.next_after == item.id
-        cursor = await handlers["/events/next/ack"](
-            payload=machine.FeedAckIn(event_id=item.id), session=session, principal=principal
-        )
-        assert cursor.after_event_id == item.id
-        listed = await handlers["/events"](
-            session=session, principal=principal, after=None, type=None, limit=10
-        )
-        assert [e.id for e in listed.events] == [item.id]

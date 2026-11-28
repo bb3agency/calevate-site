@@ -1,9 +1,9 @@
 /**
- * What a new key may do, offered as four starting points (D-1047). Each is a set of the
+ * What a new key may do, offered as five starting points (D-1047). Each is a set of the
  * account's own permissions; the server refuses any the person does not hold themselves.
  */
 
-export type PresetId = "read" | "call" | "campaigns" | "dnc";
+export type PresetId = "read" | "call" | "campaigns" | "dnc" | "events";
 
 export interface Preset {
   id: PresetId;
@@ -39,6 +39,12 @@ export const PRESETS: readonly Preset[] = [
     hint: "Read the list and add numbers to it.",
     scopes: ["org:read", "leads:read", "leads:dispatch"],
   },
+  {
+    id: "events",
+    label: "Send events to my server",
+    hint: "Read the events feed, and add or remove the addresses events are sent to.",
+    scopes: ["org:read", "org:manage"],
+  },
 ];
 
 /** Plain words for each permission, for the key list. */
@@ -50,6 +56,7 @@ export const SCOPE_WORDS: Record<string, string> = {
   "leads:write": "edit leads",
   "leads:dispatch": "place calls",
   "wallet:read": "balance",
+  "org:manage": "webhooks",
 };
 
 export function presetScopes(id: PresetId): string[] {

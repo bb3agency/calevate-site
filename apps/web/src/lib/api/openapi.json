@@ -6974,7 +6974,7 @@
             "items": {
               "type": "string"
             },
-            "maxItems": 7,
+            "maxItems": 8,
             "title": "Scopes",
             "type": "array"
           },
@@ -7023,7 +7023,7 @@
             "items": {
               "type": "string"
             },
-            "maxItems": 7,
+            "maxItems": 8,
             "title": "Grantable Scopes",
             "type": "array"
           },
@@ -23266,7 +23266,7 @@
             "items": {
               "type": "string"
             },
-            "maxItems": 7,
+            "maxItems": 8,
             "minItems": 1,
             "title": "Scopes",
             "type": "array"
@@ -30085,6 +30085,117 @@
           "status"
         ],
         "title": "FeePaymentOut",
+        "type": "object"
+      },
+      "FeedAckIn": {
+        "additionalProperties": false,
+        "properties": {
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id"
+        ],
+        "title": "FeedAckIn",
+        "type": "object"
+      },
+      "FeedCursorOut": {
+        "additionalProperties": false,
+        "properties": {
+          "after_event_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After Event Id"
+          }
+        },
+        "required": [
+          "after_event_id"
+        ],
+        "title": "FeedCursorOut",
+        "type": "object"
+      },
+      "FeedEventOut": {
+        "additionalProperties": false,
+        "description": "One event in the webhook envelope's shape (WEBHOOKS \u00a71.2). `id` and `event_id` are\nthe same value: the `event_id` every webhook delivery of this event carries.",
+        "properties": {
+          "account_id": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "data": {
+            "additionalProperties": true,
+            "title": "Data",
+            "type": "object"
+          },
+          "event": {
+            "title": "Event",
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "event_id",
+          "event",
+          "account_id",
+          "created_at",
+          "data"
+        ],
+        "title": "FeedEventOut",
+        "type": "object"
+      },
+      "FeedPageOut": {
+        "additionalProperties": false,
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/FeedEventOut"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "next_after": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next After"
+          }
+        },
+        "required": [
+          "events",
+          "next_after"
+        ],
+        "title": "FeedPageOut",
         "type": "object"
       },
       "FetchPreviewIn": {
@@ -54071,6 +54182,95 @@
         "title": "PublicTranscriptTurnOut",
         "type": "object"
       },
+      "PublicWebhookCreateIn": {
+        "additionalProperties": false,
+        "description": "A destination this key's server will receive events at. `[\"*\"]` is every event\nthere is now; `call.recording_ready` is refused, because a recording link is switched\non by a person with a code, never by a key.",
+        "properties": {
+          "auto_subscribe_new_events": {
+            "default": false,
+            "title": "Auto Subscribe New Events",
+            "type": "boolean"
+          },
+          "events": {
+            "items": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "lead.created",
+                    "lead.updated",
+                    "call.completed",
+                    "call.updated",
+                    "call.recording_ready",
+                    "campaign.completed",
+                    "call.not_connected",
+                    "call.inbound_missed",
+                    "campaign.status_changed",
+                    "lead.consent_changed",
+                    "dnc.added"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "const": "*",
+                  "type": "string"
+                }
+              ]
+            },
+            "maxItems": 12,
+            "minItems": 1,
+            "title": "Events",
+            "type": "array"
+          },
+          "url": {
+            "format": "uri",
+            "maxLength": 2083,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "events"
+        ],
+        "title": "PublicWebhookCreateIn",
+        "type": "object"
+      },
+      "PublicWebhookOut": {
+        "additionalProperties": false,
+        "properties": {
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 11,
+            "title": "Events",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "object": {
+            "const": "webhook",
+            "default": "webhook",
+            "title": "Object",
+            "type": "string"
+          },
+          "secret": {
+            "title": "Secret",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "events",
+          "secret"
+        ],
+        "title": "PublicWebhookOut",
+        "type": "object"
+      },
       "PublicationOut": {
         "additionalProperties": false,
         "properties": {
@@ -75144,7 +75344,8 @@
         "type": "object"
       },
       "WeekFiguresOut": {
-        "description": "The counts a paragraph was written from (`weekly_summary.WeekFigures`); a field a\nrow stored before it existed reads as null.",
+        "additionalProperties": false,
+        "description": "The counts a paragraph was written from (`weekly_summary.WeekFigures`); a field a\nrow stored before it existed reads as null, and a stored key this model no longer names\nis dropped where the row is read (`_week_figures`), so the model itself still forbids\nunknown fields.",
         "properties": {
           "answer_rate": {
             "anyOf": [
@@ -77981,6 +78182,205 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/api/v1/events": {
+      "get": {
+        "operationId": "list_events_api_v1_events_get",
+        "parameters": [
+          {
+            "description": "An event id; read the events after it",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "An event id; read the events after it",
+              "title": "After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "lead.created",
+                    "lead.updated",
+                    "call.completed",
+                    "call.updated",
+                    "call.recording_ready",
+                    "campaign.completed",
+                    "call.not_connected",
+                    "call.inbound_missed",
+                    "campaign.status_changed",
+                    "lead.consent_changed",
+                    "dnc.added"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Events after a known event, oldest first",
+        "tags": [
+          "public-api"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/api/v1/events/next": {
+      "get": {
+        "operationId": "next_events_api_v1_events_next_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "lead.created",
+                    "lead.updated",
+                    "call.completed",
+                    "call.updated",
+                    "call.recording_ready",
+                    "campaign.completed",
+                    "call.not_connected",
+                    "call.inbound_missed",
+                    "campaign.status_changed",
+                    "lead.consent_changed",
+                    "dnc.added"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Events after this key's cursor; the cursor moves only on ack",
+        "tags": [
+          "public-api"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/api/v1/events/next/ack": {
+      "post": {
+        "operationId": "ack_events_api_v1_events_next_ack_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedAckIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedCursorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Move this key's cursor to an event it processed (never backwards)",
+        "tags": [
+          "public-api"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
     "/api/v1/inbound-calls": {
       "get": {
         "operationId": "list_inbound_calls_api_v1_inbound_calls_get",
@@ -78301,6 +78701,77 @@
           "public-api"
         ],
         "x-calevate-permission": "agents:read"
+      }
+    },
+    "/api/v1/webhooks": {
+      "post": {
+        "operationId": "create_webhook_api_v1_webhooks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicWebhookCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicWebhookOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Send events to your server; the signing secret is shown this once",
+        "tags": [
+          "public-api"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/api/v1/webhooks/{webhook_id}": {
+      "delete": {
+        "operationId": "delete_webhook_api_v1_webhooks__webhook_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Stop sending to a destination a key made; one a person set up is theirs",
+        "tags": [
+          "public-api"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/healthz": {

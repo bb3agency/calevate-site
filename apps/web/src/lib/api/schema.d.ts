@@ -285,6 +285,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Events after a known event, oldest first */
+        get: operations["list_events_api_v1_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/events/next": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Events after this key's cursor; the cursor moves only on ack */
+        get: operations["next_events_api_v1_events_next_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/events/next/ack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move this key's cursor to an event it processed (never backwards) */
+        post: operations["ack_events_api_v1_events_next_ack_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/inbound-calls": {
         parameters: {
             query?: never;
@@ -371,6 +422,40 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send events to your server; the signing secret is shown this once */
+        post: operations["create_webhook_api_v1_webhooks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/webhooks/{webhook_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Stop sending to a destination a key made; one a person set up is theirs */
+        delete: operations["delete_webhook_api_v1_webhooks__webhook_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -27339,6 +27424,56 @@ export interface components {
              */
             status: "paid" | "due" | "overdue" | "waived";
         };
+        /** FeedAckIn */
+        FeedAckIn: {
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+        };
+        /** FeedCursorOut */
+        FeedCursorOut: {
+            /** After Event Id */
+            after_event_id: string | null;
+        };
+        /**
+         * FeedEventOut
+         * @description One event in the webhook envelope's shape (WEBHOOKS §1.2). `id` and `event_id` are
+         *     the same value: the `event_id` every webhook delivery of this event carries.
+         */
+        FeedEventOut: {
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /** Created At */
+            created_at: string;
+            /** Data */
+            data: {
+                [key: string]: unknown;
+            };
+            /** Event */
+            event: string;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+        };
+        /** FeedPageOut */
+        FeedPageOut: {
+            /** Events */
+            events: components["schemas"]["FeedEventOut"][];
+            /** Next After */
+            next_after: string | null;
+        };
         /** FetchPreviewIn */
         FetchPreviewIn: {
             /** Language */
@@ -35794,6 +35929,44 @@ export interface components {
             /** Text Redacted */
             text_redacted: string | null;
         };
+        /**
+         * PublicWebhookCreateIn
+         * @description A destination this key's server will receive events at. `["*"]` is every event
+         *     there is now; `call.recording_ready` is refused, because a recording link is switched
+         *     on by a person with a code, never by a key.
+         */
+        PublicWebhookCreateIn: {
+            /**
+             * Auto Subscribe New Events
+             * @default false
+             */
+            auto_subscribe_new_events: boolean;
+            /** Events */
+            events: (("lead.created" | "lead.updated" | "call.completed" | "call.updated" | "call.recording_ready" | "campaign.completed" | "call.not_connected" | "call.inbound_missed" | "campaign.status_changed" | "lead.consent_changed" | "dnc.added") | "*")[];
+            /**
+             * Url
+             * Format: uri
+             */
+            url: string;
+        };
+        /** PublicWebhookOut */
+        PublicWebhookOut: {
+            /** Events */
+            events: string[];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Object
+             * @default webhook
+             * @constant
+             */
+            object: "webhook";
+            /** Secret */
+            secret: string;
+        };
         /** PublicationOut */
         PublicationOut: {
             /** Note */
@@ -43864,7 +44037,9 @@ export interface components {
         /**
          * WeekFiguresOut
          * @description The counts a paragraph was written from (`weekly_summary.WeekFigures`); a field a
-         *     row stored before it existed reads as null.
+         *     row stored before it existed reads as null, and a stored key this model no longer names
+         *     is dropped where the row is read (`_week_figures`), so the model itself still forbids
+         *     unknown fields.
          */
         WeekFiguresOut: {
             /** Answer Rate */
@@ -45082,6 +45257,105 @@ export interface operations {
             };
         };
     };
+    list_events_api_v1_events_get: {
+        parameters: {
+            query?: {
+                /** @description An event id; read the events after it */
+                after?: string | null;
+                type?: ("lead.created" | "lead.updated" | "call.completed" | "call.updated" | "call.recording_ready" | "campaign.completed" | "call.not_connected" | "call.inbound_missed" | "campaign.status_changed" | "lead.consent_changed" | "dnc.added") | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedPageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    next_events_api_v1_events_next_get: {
+        parameters: {
+            query?: {
+                type?: ("lead.created" | "lead.updated" | "call.completed" | "call.updated" | "call.recording_ready" | "campaign.completed" | "call.not_connected" | "call.inbound_missed" | "campaign.status_changed" | "lead.consent_changed" | "dnc.added") | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedPageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    ack_events_api_v1_events_next_ack_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedAckIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedCursorOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_inbound_calls_api_v1_inbound_calls_get: {
         parameters: {
             query?: {
@@ -45264,6 +45538,68 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PublicNumberList"];
                 };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_webhook_api_v1_webhooks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicWebhookCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicWebhookOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    delete_webhook_api_v1_webhooks__webhook_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {

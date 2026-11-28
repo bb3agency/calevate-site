@@ -14,7 +14,7 @@ from apps.api.db.session import tenant_session
 from apps.api.public_api import activity, deps
 from apps.api.public_api.version import CURRENT_VERSION
 from sqlalchemy import text
-from tests.api_keys_test import bearer, make_key
+from tests.api_keys_test import DIAL, bearer, make_key
 from tests.lead_dial_routes_test import _client, _dialable_tenant, _lead, _outbound_calls
 
 
@@ -301,7 +301,9 @@ async def test_a_neighbours_key_finds_nothing() -> None:
     from apps.api.main import app
 
     tenant_a, agent_a, _ha, _key_a = await _keyed()
-    _tb, _ab, _hb, key_b = await _keyed()
+    _tb, _ab, slug_b, headers_b = await _dialable_tenant()
+    # Every scope a route here asks, so each refusal is the row's absence, not the key's.
+    key_b = bearer(await make_key(headers_b, slug_b, scopes=[*DIAL, "org:manage"]))
     lead_id, phone = await _lead(tenant_a, agent_a)
     ids = {
         "agent_id": agent_a,
@@ -309,6 +311,7 @@ async def test_a_neighbours_key_finds_nothing() -> None:
         "call_id": uuid7(),
         "entry_id": uuid7(),
         "campaign_id": uuid7(),
+        "webhook_id": uuid7(),
     }
     async with tenant_session(tenant_a) as session:
         await session.execute(
@@ -339,6 +342,14 @@ async def test_a_neighbours_key_finds_nothing() -> None:
                 "VALUES (:id, :t, :a, 'Check-ups', 'service', 'paused')"
             ),
             {"id": ids["campaign_id"], "t": tenant_a, "a": agent_a},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO outbound_webhooks (id, tenant_id, kind, url, secret_ref, events, "
+                "active, created_at, updated_at) VALUES (:i, :t, 'webhook', "
+                "'https://crm.example/hook', 'whsec_x', ARRAY['lead.created'], true, now(), now())"
+            ),
+            {"i": ids["webhook_id"], "t": tenant_a},
         )
     bodies: dict[str, dict[str, Any]] = {
         "DELETE /api/v1/dnc/{entry_id}": {"reason": "Not theirs to remove"},

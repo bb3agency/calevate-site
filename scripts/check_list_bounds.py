@@ -268,6 +268,12 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "POST /v1/api-keys/{key_id}/renew": _API_KEY,
     "POST /v1/api-keys": _API_KEY,
     "GET /api/v1/me": _API_KEY,
+    "POST /api/v1/webhooks": BoundedByConstruction(
+        by=(
+            "the stored subscription: at most the events `integrations/service.EVENT_TYPES` "
+            "names, max_length on `PublicWebhookOut.events`."
+        )
+    ),
     "GET /v1/api-keys": BoundedByConstruction(
         by=(
             "at most `api_keys/service.LIST_LIMIT` (100) keys, LIMITed in `list_keys`, each "

@@ -68,7 +68,20 @@ def upgrade() -> None:
     )
     op.add_column("outbound_webhooks", sa.Column("paused_at", sa.DateTime(timezone=True)))
     op.add_column("outbound_webhooks", sa.Column("failing_since", sa.DateTime(timezone=True)))
-    op.add_column("outbound_webhooks", sa.Column("managed_by_key_id", sa.UUID()))
+    # SET NULL, not CASCADE: the endpoint outlives the key that made it (a person may keep
+    # it); it stops being key-managed, and erasure may delete the two in either order.
+    op.add_column(
+        "outbound_webhooks",
+        sa.Column(
+            "managed_by_key_id",
+            sa.UUID(),
+            sa.ForeignKey(
+                "api_keys.id",
+                name="fk_outbound_webhooks_managed_by_key_id_api_keys",
+                ondelete="SET NULL",
+            ),
+        ),
+    )
     op.add_column(
         "webhook_deliveries",
         sa.Column("is_test", sa.Boolean(), server_default="false", nullable=False),
@@ -132,6 +145,13 @@ def upgrade() -> None:
             ["organizations.id"],
             name=op.f(f"fk_{CURSORS}_tenant_id_organizations"),
             ondelete="RESTRICT",
+        ),
+        # A cursor belongs to its key: a deleted key's position means nothing.
+        sa.ForeignKeyConstraint(
+            ["consumer_id"],
+            ["api_keys.id"],
+            name=op.f(f"fk_{CURSORS}_consumer_id_api_keys"),
+            ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("consumer_id", name=op.f(f"pk_{CURSORS}")),
     )
