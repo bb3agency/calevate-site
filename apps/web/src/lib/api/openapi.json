@@ -53523,6 +53523,107 @@
         "title": "RegisterTemplateIn",
         "type": "object"
       },
+      "RehearseIn": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "session": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "RehearseIn",
+        "type": "object"
+      },
+      "RehearseOut": {
+        "additionalProperties": false,
+        "properties": {
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/RehearsedActionOut"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "cost_note": {
+            "title": "Cost Note",
+            "type": "string"
+          },
+          "cut_short": {
+            "title": "Cut Short",
+            "type": "boolean"
+          },
+          "flags": {
+            "items": {
+              "$ref": "#/components/schemas/ReplyFlagOut"
+            },
+            "title": "Flags",
+            "type": "array"
+          },
+          "reply": {
+            "title": "Reply",
+            "type": "string"
+          },
+          "runs": {
+            "enum": [
+              "saved",
+              "live"
+            ],
+            "title": "Runs",
+            "type": "string"
+          },
+          "session": {
+            "title": "Session",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session",
+          "reply",
+          "cut_short",
+          "actions",
+          "flags",
+          "runs",
+          "cost_note"
+        ],
+        "title": "RehearseOut",
+        "type": "object"
+      },
+      "RehearsedActionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "ran": {
+            "title": "Ran",
+            "type": "boolean"
+          },
+          "said": {
+            "title": "Said",
+            "type": "string"
+          }
+        },
+        "required": [
+          "said",
+          "ran"
+        ],
+        "title": "RehearsedActionOut",
+        "type": "object"
+      },
       "RejectIn": {
         "additionalProperties": false,
         "properties": {
@@ -53736,6 +53837,30 @@
           "job"
         ],
         "title": "ReplayOut",
+        "type": "object"
+      },
+      "ReplyFlagOut": {
+        "additionalProperties": false,
+        "properties": {
+          "in_script": {
+            "title": "In Script",
+            "type": "boolean"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "reason",
+          "in_script"
+        ],
+        "title": "ReplyFlagOut",
         "type": "object"
       },
       "ReplyLengthIn": {
@@ -65233,6 +65358,27 @@
           "is_live"
         ],
         "title": "TmRegistrationOut",
+        "type": "object"
+      },
+      "ToldOut": {
+        "additionalProperties": false,
+        "properties": {
+          "told": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Told"
+          }
+        },
+        "required": [
+          "told"
+        ],
+        "title": "ToldOut",
         "type": "object"
       },
       "ToolIn": {
@@ -94818,6 +94964,56 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/campaigns/{campaign_id}/rehearse": {
+      "post": {
+        "operationId": "rehearse_campaign_v1_campaigns__campaign_id__rehearse_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RehearseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RehearseOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Type as a caller would, and hear how the campaign's saved script answers",
+        "tags": [
+          "rehearse"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
     "/v1/campaigns/{campaign_id}/restore": {
       "post": {
         "operationId": "restore_v1_campaigns__campaign_id__restore_post",
@@ -95514,6 +95710,46 @@
           "campaigns"
         ],
         "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/script/told": {
+      "get": {
+        "operationId": "campaign_told_v1_campaigns__campaign_id__script_told_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToldOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What the campaign's agent is told from its saved script (the owner's part only)",
+        "tags": [
+          "rehearse"
+        ],
+        "x-calevate-permission": "leads:read"
       }
     },
     "/v1/campaigns/{campaign_id}/script/versions": {
@@ -103223,6 +103459,56 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/inbound-lines/{line_id}/rehearse": {
+      "post": {
+        "operationId": "rehearse_line_v1_inbound_lines__line_id__rehearse_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RehearseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RehearseOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Type as a caller would, and hear how the line's saved script answers",
+        "tags": [
+          "rehearse"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
     "/v1/inbound-lines/{line_id}/script": {
       "put": {
         "operationId": "save_script_v1_inbound_lines__line_id__script_put",
@@ -103565,6 +103851,46 @@
           "inbound"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/script/told": {
+      "get": {
+        "operationId": "line_told_v1_inbound_lines__line_id__script_told_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToldOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What the line's agent is told from its saved script (the owner's part only)",
+        "tags": [
+          "rehearse"
+        ],
+        "x-calevate-permission": "agents:read"
       }
     },
     "/v1/inbound-lines/{line_id}/script/versions": {
