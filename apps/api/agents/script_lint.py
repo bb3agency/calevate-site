@@ -36,8 +36,9 @@ The checks:
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, Literal
 
 from calevate_shared.call_script import (
     CALL_BACK,
@@ -148,6 +149,27 @@ class CapabilityManifest:
         return "\n".join(lines)
 
 
+#: What an owner's "Never" rule forbids, as far as a script line can show it (W3.9).
+OwnerRuleKind = Literal[
+    "call_back_time",
+    "call_back",
+    "discount",
+    "price",
+    "refund",
+    "guarantee",
+    "booking",
+    "whatsapp",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class OwnerRule:
+    """One owner rule: their words, verbatim, and what it forbids."""
+
+    words: str
+    kind: OwnerRuleKind
+
+
 @dataclass(frozen=True, slots=True)
 class LintContext:
     """What a script is checked against."""
@@ -178,6 +200,9 @@ class LintContext:
     #: What the agent says on a call outside the script, word for word: its AI and recording
     #: sentences where they are switched on. Names in them need the script's pronunciations.
     spoken_elsewhere: tuple[str, ...] = ()
+    #: The owner's "Never ..." rules among the pinned facts (`owner_prohibitions`), each in
+    #: the owner's own words, which no line of the script may break (W3.9).
+    owner_rules: tuple[OwnerRule, ...] = ()
 
 
 def _promo(text: str, context: LintContext) -> Finding | None:
@@ -763,6 +788,103 @@ def promise_problem(where: str, text: str, context: LintContext, *, spoken: bool
     if spoken:
         return f"{where}: promises {promise}; take the details for the team."
     return f"{where}: has the agent promise {promise}."
+
+
+# --- the owner's "Never" rules (W3.9) ----------------------------------------------------
+#
+# A rule stays a pinned fact (`kb_facts`, D-1017: no marker of its own); it is recognised
+# here by how it is worded, in code rather than by a model, so a publish check never waits on
+# a model and gives the same answer every time. What a rule forbids is read from its words
+# into one of `OwnerRuleKind`; a rule naming none of them is left to the post-call judge,
+# which reads every rule as written. English only: the owner's rules are typed in the
+# dashboard, and a rule in another language is not read here.
+
+_PROHIBITION: Final = re.compile(
+    r"^\s*(?:never|do\s+not|don'?t|dont|must\s+not|mustn'?t|should\s+not|shouldn'?t|"
+    r"no\s+one\s+should|no)\b",
+    re.IGNORECASE,
+)
+_TIME_WORD: Final = re.compile(r"\b(?:time|times|hour|hours|when|o'?clock|slot|slots)\b", re.I)
+#: A time said in a line: "5 PM", "5:30", "at 5", "which time", "a time".
+_TIME_SAID: Final = re.compile(
+    r"\b\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)|\b\d{1,2}:\d{2}\b|\bo'?clock\b|"
+    r"\bat\s+\d{1,2}\b|\b(?:which|what|a|the|exact)\s+time\b",
+    re.IGNORECASE,
+)
+_DISCOUNT: Final = re.compile(
+    r"\bdiscounts?\b|\d+\s*%\s*off\b|\bpercent off\b|\bconcessions?\b|\bcashback\b", re.I
+)
+_PRICE_RULE: Final = re.compile(r"\b(?:prices?|pricing|costs?|fees?|rates?|charges?)\b", re.I)
+_PRICE_SAID: Final = re.compile(r"₹\s*\d|\brs\.?\s*\d|\b\d[\d,]*\s*(?:rupees|rs\b|/-)", re.I)
+_REFUND: Final = re.compile(r"\brefunds?\b|\bmoney back\b", re.IGNORECASE)
+_GUARANTEE: Final = re.compile(r"\bguarantee[sd]?\b|\bassured?\b|\b100\s*%\b", re.IGNORECASE)
+_BOOKING_RULE: Final = re.compile(r"\b(?:book|booking|appointments?|confirm)\b", re.IGNORECASE)
+
+
+def _rule_kind(words: str) -> OwnerRuleKind | None:
+    """What a "Never" rule forbids, the narrowest reading first."""
+    if _CALL_BACK.search(words):
+        return "call_back_time" if _TIME_WORD.search(words) else "call_back"
+    if _DISCOUNT.search(words):
+        return "discount"
+    if _REFUND.search(words):
+        return "refund"
+    if _GUARANTEE.search(words):
+        return "guarantee"
+    if _WHATSAPP.search(words):
+        return "whatsapp"
+    if _BOOKING_RULE.search(words):
+        return "booking"
+    if _PRICE_RULE.search(words):
+        return "price"
+    return None
+
+
+def owner_prohibitions(facts: Iterable[str]) -> tuple[OwnerRule, ...]:
+    """The pinned facts that are "Never" rules naming something a script line can do, each
+    once, in the owner's words."""
+    out: dict[str, OwnerRule] = {}
+    for fact in facts:
+        words = " ".join(fact.split())
+        if not words or not _PROHIBITION.search(words):
+            continue
+        kind = _rule_kind(words)
+        if kind is not None:
+            out.setdefault(words.casefold(), OwnerRule(words, kind))
+    return tuple(out.values())
+
+
+def _breaks(rule: OwnerRule, sentence: str) -> bool:
+    """Whether one sentence does what `rule` forbids, in a clause that does not say it will
+    not happen ("we can't give a discount" keeps the rule)."""
+    clauses = [c for c in _CLAUSE_BREAK.split(sentence) if c]
+
+    def said(pattern: re.Pattern[str] | _LivePattern) -> bool:
+        return any(pattern.search(c) and not _NEGATED.search(c) for c in clauses)
+
+    if rule.kind == "call_back_time":
+        return offers_call_back(sentence) and bool(_TIME_SAID.search(sentence))
+    if rule.kind == "call_back":
+        return offers_call_back(sentence)
+    if rule.kind == "discount":
+        return said(_DISCOUNT)
+    if rule.kind == "price":
+        return said(_PRICE_SAID)
+    if rule.kind == "refund":
+        return said(_REFUND)
+    if rule.kind == "guarantee":
+        return said(_GUARANTEE)
+    if rule.kind == "booking":
+        return said(_BOOKS)
+    return bool(_WHATSAPP.search(sentence)) and said(_SENDS)
+
+
+def owner_rule_problem(where: str, text: str, rules: Sequence[OwnerRule]) -> str | None:
+    """The first of the owner's rules `text` breaks, named in their words, or None."""
+    for rule in rules:
+        if any(_breaks(rule, s) for s in re.split(r"(?<=[.?!।])\s+", text) if s.strip()):
+            return f'{where}: breaks your rule "{rule.words[:120]}"; change the line to keep it.'
+    return None
 
 
 def figure_problem(where: str, text: str, context: LintContext) -> str | None:
@@ -1939,6 +2061,8 @@ __all__ = [
     "PLACED_OPENING_BRIEF",
     "CapabilityManifest",
     "LintContext",
+    "OwnerRule",
+    "OwnerRuleKind",
     "agent_claims_caller_action_problems",
     "agent_lines",
     "answer_lines",
@@ -1973,6 +2097,8 @@ __all__ = [
     "order_problems",
     "other_persona",
     "own_script_line_problems",
+    "owner_prohibitions",
+    "owner_rule_problem",
     "placed_call_opening",
     "placed_opening_problem",
     "placeholder_instruction",

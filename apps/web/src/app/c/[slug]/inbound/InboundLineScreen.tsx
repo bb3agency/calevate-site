@@ -108,6 +108,10 @@ const ProposalReview = dynamic(
   () => import("../agents/[agentId]/script/ProposalReview").then((m) => m.ProposalReview),
   { loading: () => <Skeleton rows={4} /> },
 );
+const RehearseDock = dynamic(
+  () => import("../agents/[agentId]/script/RehearseDock").then((m) => m.RehearseDock),
+  { loading: () => null },
+);
 const ScriptPartsEditor = dynamic(
   () => import("../agents/[agentId]/script/ScriptPartsEditor").then((m) => m.ScriptPartsEditor),
   { loading: () => <Skeleton rows={4} /> },
@@ -609,6 +613,14 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
                 >
                   Edit script
                 </button>
+                <RehearseDock
+                  session={session}
+                  holder={{ kind: "line", id: line.id }}
+                  script={script}
+                  canWrite={canWrite}
+                  refusal={refusal}
+                  onFix={(instruction) => askFeedback.run({ instruction })}
+                />
                 <ScriptVersions
                   versions={versions.data}
                   noun="script"

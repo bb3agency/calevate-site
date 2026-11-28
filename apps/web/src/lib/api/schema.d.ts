@@ -7889,6 +7889,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/rehearse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Type as a caller would, and hear how the campaign's saved script answers */
+        post: operations["rehearse_campaign_v1_campaigns__campaign_id__rehearse_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/restore": {
         parameters: {
             query?: never;
@@ -8181,6 +8198,23 @@ export interface paths {
         put?: never;
         /** Give every step outcome back to Pip to rewrite */
         post: operations["rewrite_step_outcomes_v1_campaigns__campaign_id__script_step_outcomes_rewrite_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/script/told": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What the campaign's agent is told from its saved script (the owner's part only) */
+        get: operations["campaign_told_v1_campaigns__campaign_id__script_told_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -11296,6 +11330,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/inbound-lines/{line_id}/rehearse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Type as a caller would, and hear how the line's saved script answers */
+        post: operations["rehearse_line_v1_inbound_lines__line_id__rehearse_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/inbound-lines/{line_id}/script": {
         parameters: {
             query?: never;
@@ -11398,6 +11449,23 @@ export interface paths {
         put?: never;
         /** Put back the owner's own last version of the line's script, before Pip's changes */
         post: operations["restore_script_before_pip_v1_inbound_lines__line_id__script_restore_before_pip_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/script/told": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What the line's agent is told from its saved script (the owner's part only) */
+        get: operations["line_told_v1_inbound_lines__line_id__script_told_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -35191,6 +35259,40 @@ export interface components {
             /** Dlt Ref */
             dlt_ref?: string | null;
         };
+        /** RehearseIn */
+        RehearseIn: {
+            /** Message */
+            message: string;
+            /** Session */
+            session?: string | null;
+        };
+        /** RehearseOut */
+        RehearseOut: {
+            /** Actions */
+            actions: components["schemas"]["RehearsedActionOut"][];
+            /** Cost Note */
+            cost_note: string;
+            /** Cut Short */
+            cut_short: boolean;
+            /** Flags */
+            flags: components["schemas"]["ReplyFlagOut"][];
+            /** Reply */
+            reply: string;
+            /**
+             * Runs
+             * @enum {string}
+             */
+            runs: "saved" | "live";
+            /** Session */
+            session: string;
+        };
+        /** RehearsedActionOut */
+        RehearsedActionOut: {
+            /** Ran */
+            ran: boolean;
+            /** Said */
+            said: string;
+        };
         /** RejectIn */
         RejectIn: {
             /** Reason */
@@ -35272,6 +35374,15 @@ export interface components {
             job: string | null;
             /** Replayed */
             replayed: number;
+        };
+        /** ReplyFlagOut */
+        ReplyFlagOut: {
+            /** In Script */
+            in_script: boolean;
+            /** Kind */
+            kind: string;
+            /** Reason */
+            reason: string;
         };
         /** ReplyLengthIn */
         ReplyLengthIn: {
@@ -39851,6 +39962,11 @@ export interface components {
             tm_id: string | null;
             /** Verified At */
             verified_at: string | null;
+        };
+        /** ToldOut */
+        ToldOut: {
+            /** Told */
+            told: string | null;
         };
         /** ToolIn */
         ToolIn: {
@@ -57171,6 +57287,41 @@ export interface operations {
             };
         };
     };
+    rehearse_campaign_v1_campaigns__campaign_id__rehearse_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RehearseIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RehearseOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     restore_v1_campaigns__campaign_id__restore_post: {
         parameters: {
             query?: never;
@@ -57656,6 +57807,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    campaign_told_v1_campaigns__campaign_id__script_told_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToldOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -63590,6 +63772,41 @@ export interface operations {
             };
         };
     };
+    rehearse_line_v1_inbound_lines__line_id__rehearse_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RehearseIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RehearseOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     save_script_v1_inbound_lines__line_id__script_put: {
         parameters: {
             query?: never;
@@ -63814,6 +64031,37 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["EngineAgentAllowanceFull"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    line_told_v1_inbound_lines__line_id__script_told_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToldOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

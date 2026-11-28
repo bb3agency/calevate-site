@@ -65,6 +65,7 @@ from apps.api.agents.script_lint import (
     opening_shape_problems,
     order_problems,
     own_script_line_problems,
+    owner_rule_problem,
     persona_problem,
     placed_call_opening,
     placeholder_problems,
@@ -244,6 +245,20 @@ def _promise(script: CallScript, ctx: CheckContext) -> list[str]:
             for path, text in instruction_fields(script)
             if text.strip() and (problem := promise_problem(path, text, ctx.lint, spoken=False))
         ),
+    ]
+
+
+def _owner_rules(script: CallScript, ctx: CheckContext) -> list[str]:
+    rules = ctx.lint.owner_rules
+    if not rules:
+        return []
+    if script.raw_override is not None:
+        found = owner_rule_problem("script", script.raw_override, rules)
+        return [found] if found else []
+    return [
+        problem
+        for path, text in (*agent_lines(script), *instruction_fields(script))
+        if text.strip() and (problem := owner_rule_problem(path, text, rules))
     ]
 
 
@@ -701,6 +716,20 @@ CHECKS: Final[tuple[Check, ...]] = (
         "script_lint._WHATSAPP, _SMS, _CALL_BACK, _BOOKS, _HANDS_OVER",
         _promise,
     ),
+    # The owner's own "Never" rules (W3.9): a line that breaks one is wrong on every call it
+    # reaches, so it blocks like a promise the account cannot keep. Not healed: which way to
+    # keep the owner's rule is for the owner, or the writer told the rule, to choose.
+    Check(
+        "owner_rule",
+        frozenset({*LINES, "instruction", "procedure"}),
+        ENGLISH,
+        LATIN,
+        "block",
+        "Keep the owner's rule: say nothing it forbids.",
+        "code (English: script_lint.owner_prohibitions)",
+        _owner_rules,
+        heals=False,
+    ),
     Check(
         "unknown_figure",
         LINES,
@@ -941,6 +970,10 @@ def _context(context: CheckContext | LintContext | None) -> CheckContext:
     return context
 
 
+#: The checks that read a hand-written script as one instruction.
+_READS_RAW: Final = frozenset({"promo", "unbacked_promise", "owner_rule"})
+
+
 def _under(path: str, paths: Sequence[str]) -> bool:
     return any(path == p or path.startswith(f"{p}.") for p in paths)
 
@@ -960,7 +993,7 @@ def run(
     found: dict[str, Finding] = {}
     dumped: dict[str, Any] | None = None
     for check in wanted:
-        if script.raw_override is not None and check.id not in {"promo", "unbacked_promise"}:
+        if script.raw_override is not None and check.id not in _READS_RAW:
             continue
         for text in check.detect(script, ctx):
             path, _sep, problem = text.partition(": ")

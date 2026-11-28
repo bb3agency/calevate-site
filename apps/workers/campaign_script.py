@@ -9,8 +9,11 @@ and writes each step by its own small request. Which request:
 
 - a first script, a request that lays out the steps itself (`owner_plan`), and the rewrite
   under the current rules (`workers/script_heal._ask_rewrite`) are written `whole`;
-- "Generate again" and an owner's free-form ask on an existing script are `whole` from that
-  script: its shape is kept unless the ask changes it, which a checked outline does;
+- "Generate again" with nothing typed is `whole` from the saved script: its shape is kept
+  unless the ask changes it, which a checked outline does;
+- an owner's free-form ask on an existing script (typed on the page, sent by Pip, or a
+  rehearsal's "Fix this in the script") is `edit`: only the places it names are written
+  again, and a change that reshapes the call goes `whole` from there;
 - the flow ask ("Let Pip map the scenarios") is `whole` from a fresh outline;
 - a one-part ask is `steps` for a step, `opening` for the opening, `lines` for any other part.
 
@@ -399,6 +402,8 @@ def write_request(context: ScriptContext, started: float) -> WriteRequest:
         return _part_request(context, base, started)
     if context.rewrite or base is None:
         return WriteRequest("whole", context, started)
+    if context.instruction.strip() and not context.replans:
+        return WriteRequest("edit", context, started, base=base)
     return WriteRequest("whole", context, started, base=base)
 
 
@@ -601,6 +606,7 @@ async def _write(holder: _Holder, kind: HolderKind, started: float) -> str:
         *over_plan_left(context),
     ]
     why = {"step_outcomes": task_steps_note(result.task_plan)} if result.task_plan else {}
+    why.update(result.changed)
     update = {
         "status": "ready",
         "script": result.script.model_dump(mode="json"),
@@ -623,6 +629,7 @@ async def _write(holder: _Holder, kind: HolderKind, started: float) -> str:
             "mode": request.mode,
             "requests": len(result.spends),
             "left": len(left_out),
+            "seconds": round(time.monotonic() - started, 1),
         },
     )
     return "ready" if stored else "not_pending"

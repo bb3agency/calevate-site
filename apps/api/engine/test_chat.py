@@ -34,6 +34,15 @@ class TestChatTool:
     #: The `status` word one of OUR actions answered with (`worker/engine_actions`), when the
     #: tool was ours and the engine passed our answer back; None otherwise.
     status: str | None = None
+    #: What the agent passed one of OUR actions, for the parameters `OUR_ARGUMENTS` names
+    #: only: our own parameter names, never a vendor tool's input shape (hard rule 2).
+    arguments: tuple[tuple[str, str], ...] = ()
+
+
+#: The parameters of our own actions a test turn reports back (`TestChatTool.arguments`):
+#: the call-back's day and time (`reliability/engine_actions.definitions`,
+#: `arrange_return_call`), which the rehearsal says as "Would book a call-back for 5 PM".
+OUR_ARGUMENTS: Final = frozenset({"callback_date", "callback_time"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +77,7 @@ class RunsTestChat(Protocol):
 
 
 __all__ = [
+    "OUR_ARGUMENTS",
     "TEST_CALL_NOT_SET_UP",
     "TEST_CHAT_UNAVAILABLE",
     "RunsTestChat",

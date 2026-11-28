@@ -286,6 +286,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.quality.routes import router as quality_router
     from apps.api.quality.sampling_routes import router as qa_sampling_router
     from apps.api.security.routes import router as csp_report_router
+    from apps.api.teach.rehearse_routes import router as rehearse_router
     from apps.api.teach.routes import router as teach_router
     from apps.api.team_alerts.routes import router as team_alerts_router
     from apps.api.tenancy.business_copy_routes import router as business_copy_router
@@ -489,6 +490,7 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(kb_admin_router)
     application.include_router(live_router)
     application.include_router(teach_router)
+    application.include_router(rehearse_router)
     application.include_router(ingest_router)
     application.include_router(lead_sources_router)
     # A client's plan for calling new leads, and its held-lead queue (D-716).

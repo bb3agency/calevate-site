@@ -135,6 +135,8 @@ def test_every_rule_names_a_profile_that_exists() -> None:
         ("/v1/agents/{agent_id}/script/tests", "POST", "costly"),
         ("/v1/agents/{agent_id}/script/tests", "GET", "client_api"),
         ("/v1/agents/{agent_id}/try-chat", "POST", "costly"),
+        ("/v1/campaigns/{campaign_id}/rehearse", "POST", "costly"),
+        ("/v1/inbound-lines/{line_id}/rehearse", "POST", "costly"),
         ("/v1/agents/{agent_id}/test-cases/run", "POST", "costly"),
         ("/v1/kb/teach/upload", "POST", "costly"),
         ("/v1/copilot/routines/{routine_id}/run", "POST", "costly"),
