@@ -33,6 +33,9 @@ LEAD_MOVES: Final[tuple[LeadMove, ...]] = get_args(LeadMove)
 MAX_BUSINESS_OUTCOMES: Final = 8
 LABEL_MAX: Final = 40
 MEANING_MAX: Final = 200
+#: `counts_when` and `not_when`: one short line each, so two close labels ("Interested",
+#: "Not interested") are told apart by what the caller said rather than by a longer meaning.
+CONDITION_MAX: Final = 120
 KEY_MAX: Final = 40
 
 _KEY_PATTERN: Final = r"^[a-z][a-z0-9_]*$"
@@ -69,9 +72,15 @@ class BusinessOutcome(BaseModel):
     label: str = Field(min_length=1, max_length=LABEL_MAX)
     #: What the extraction model listens for; empty is allowed and the label then stands alone.
     meaning: str = Field(default="", max_length=MEANING_MAX)
+    #: What the caller says or does that makes a call this outcome; empty when the meaning
+    #: says enough.
+    counts_when: str = Field(default="", max_length=CONDITION_MAX)
+    #: The nearest case that is NOT this outcome ("only wants time to think" for "Not
+    #: interested"), which the extraction model is told to keep out of it.
+    not_when: str = Field(default="", max_length=CONDITION_MAX)
     lead_status: LeadMove = "contacted"
 
-    @field_validator("label", "meaning", mode="before")
+    @field_validator("label", "meaning", "counts_when", "not_when", mode="before")
     @classmethod
     def _collapse(cls, value: object) -> object:
         return _one_line(value) if isinstance(value, str) else value
@@ -141,6 +150,8 @@ STARTING_OUTCOMES: Final[tuple[BusinessOutcome, ...]] = (
         meaning=(
             "The caller wants what the call was about, or wants to go ahead with it, now or later."
         ),
+        counts_when="The caller says yes to it, asks how to go ahead, or asks for it later.",
+        not_when="The caller only listened, or said yes to being able to talk.",
         lead_status="interested",
     ),
     BusinessOutcome(
@@ -159,6 +170,11 @@ STARTING_OUTCOMES: Final[tuple[BusinessOutcome, ...]] = (
         key="not_interested",
         label="Not interested",
         meaning="The caller said they do not want what the call was about.",
+        counts_when="The caller says no to it, or asks not to be told about it again.",
+        not_when=(
+            "The caller wants time to think, asks to be called later, or says not now: "
+            "they have not said no."
+        ),
         lead_status="contacted",
     ),
 )
@@ -183,6 +199,7 @@ PAST_STARTING_OUTCOMES: Final[tuple[BusinessOutcome, ...]] = (
 
 
 __all__ = [
+    "CONDITION_MAX",
     "KEY_MAX",
     "LABEL_MAX",
     "LEAD_MOVES",

@@ -33,7 +33,7 @@ later, and a value saying it happened goes when the step was not reached.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 
@@ -81,6 +81,15 @@ _PENDING: Final = re.compile(
 _DONE: Final = re.compile(
     r"\b(?:success\w*|complet\w*|fully|finish\w*|done|all\s+set|set\s*up|operational|"
     r"working|(?:all|each|every)\s+(?:of\s+)?(?:the\s+)?steps?|everything)\b",
+    re.I,
+)
+#: What keeps a completion word from claiming completion in the summary's prose: a denial,
+#: a wish or something still to come. Narrower than `_PENDING`, whose "guided" and
+#: "explained" excuse an "asked to record" clause but also let "completed the setup with the
+#: agent's guidance" stand on a call that stopped two steps short.
+_NOT_DONE: Final = re.compile(
+    r"\b(?:not|no|never|yet|before|until|will|would|could|should|about\s+to|going\s+to|"
+    r"try|tried|trying|pending|wants?|wanted|asked)\b|n[\u2019']t\b",
     re.I,
 )
 _SENTENCE: Final = re.compile(r"(?<=[.!?])\s+")
@@ -263,13 +272,19 @@ def without_unreached(text: str, facts: StepFacts) -> str:
     left with nothing is dropped. Unchanged when nothing claims one."""
     if not facts.missed or not text.strip():
         return text
+    return _without_clauses(text, lambda clause: _claims(clause, facts))
+
+
+def _without_clauses(text: str, claims: Callable[[str], bool]) -> str:
+    if not text.strip():
+        return text
     kept_sentences: list[str] = []
     changed = False
     for sentence in _SENTENCE.split(text.strip()):
         end = sentence[-1] if sentence[-1:] in (".", "!", "?") else ""
         body = sentence[:-1] if end else sentence
         clauses = [c for c in _CLAUSE.split(body) if c]
-        kept = [c for c in clauses if not _claims(c, facts)]
+        kept = [c for c in clauses if not claims(c)]
         if len(kept) == len(clauses):
             kept_sentences.append(sentence)
             continue
@@ -280,13 +295,91 @@ def without_unreached(text: str, facts: StepFacts) -> str:
     return " ".join(kept_sentences) if changed else text
 
 
-def _claims_done(value: str, facts: StepFacts) -> bool:
-    """A value saying the whole job is done ("Setup successful") on a call that stopped
-    short, unless it names a step the call did reach ("Installation complete")."""
-    if not facts.incomplete or not _DONE.search(value):
+def _step_name(facts: StepFacts, step: int) -> str:
+    return redact(" ".join(facts.names.get(step, "").split())).text.rstrip(".")
+
+
+def where_it_got_to(facts: StepFacts) -> str | None:
+    """The summary's code-built half: one English sentence saying how far the call got
+    through its script's main steps (side steps and steps named for an absence are not the
+    path a call walks). None when there is nothing the code can say.
+
+    Built rather than asked for because the model's own account was false twice running
+    (27 and 28 Nov 2026: "confirmed completion of all steps" on calls that stopped two
+    steps short), and scrubbing its words after the fact was widened twice and still
+    missed. From a reading: every main step reached, or the furthest reached and the first
+    one missed. From the words alone (no reading): only the first step the call did not
+    get to, because silence about a step is not evidence it was done."""
+    main = sorted(n for n in facts.names if n not in facts.branches)
+    if not main:
+        return None
+    missed = [n for n in main if n in facts.missed]
+    if facts.progress is None:
+        return f'The call did not get to "{_step_name(facts, missed[0])}".' if missed else None
+    reached = [n for n in main if n in facts.reached]
+    if reached and len(reached) == len(main):
+        return "The call went through every step of the script."
+    if not missed:
+        return f'The call reached "{_step_name(facts, reached[-1])}".' if reached else None
+    stop = next((n for n in missed if not reached or n > reached[-1]), missed[0])
+    left = sum(1 for n in main if n > stop and n not in facts.reached)
+    more = "" if not left else " or the step after it" if left == 1 else f" or the {left} after it"
+    if not reached or stop < reached[0]:
+        return f'The call stopped before "{_step_name(facts, stop)}"{more}.'
+    return (
+        f'The call reached "{_step_name(facts, reached[-1])}" and did not reach '
+        f'"{_step_name(facts, stop)}"{more}.'
+    )
+
+
+def with_where_it_got_to(summary: str, facts: StepFacts) -> str:
+    """The summary in two parts: the prose with every clause claiming an unreached step or
+    the whole job done taken out (`without_unreached`), then `where_it_got_to`. The prose
+    is what the caller wanted and said; how far the call got is the code's. Empty prose
+    stays empty: a summary still to be written in English (the language pass) is not
+    replaced by the clause alone. Composing twice adds the clause once."""
+    prose = _true_prose(summary, facts).strip()
+    clause = where_it_got_to(facts)
+    if not prose or clause is None or clause in prose:
+        return prose
+    end = "" if prose[-1:] in (".", "!", "?") else "."
+    return f"{prose}{end} {clause}"
+
+
+def _true_prose(text: str, facts: StepFacts) -> str:
+    """`text` without a clause claiming an unreached step, nor, on a call that stopped short
+    or whose last main step is not shown reached, a clause calling the job done."""
+    prose = without_unreached(text, facts)
+    if facts.incomplete or _end_unshown(facts):
+        prose = _without_clauses(prose, lambda c: _says_done(c, facts) and not _NOT_DONE.search(c))
+    return prose
+
+
+def overstates(text: str, facts: StepFacts) -> bool:
+    """Whether some clause of `text` says more than the steps show: what
+    `with_where_it_got_to` would take out of it."""
+    return bool(text.strip()) and _true_prose(text, facts) != text
+
+
+def _end_unshown(facts: StepFacts) -> bool:
+    """A reading that does not show the script's last main step reached: no prose may then
+    call the job done, even when no step was judged `not_reached` (steps left unclear)."""
+    main = [n for n in facts.names if n not in facts.branches]
+    return facts.progress is not None and bool(main) and max(main) not in facts.reached
+
+
+def _says_done(value: str, facts: StepFacts) -> bool:
+    """A value saying the whole job is done, unless it names a step the call did reach."""
+    if not _DONE.search(value):
         return False
     reached = set().union(*(facts.terms.get(n, frozenset()) for n in facts.reached))
     return not _stems(value) & reached
+
+
+def _claims_done(value: str, facts: StepFacts) -> bool:
+    """A value saying the whole job is done ("Setup successful") on a call that stopped
+    short, unless it names a step the call did reach ("Installation complete")."""
+    return facts.incomplete and _says_done(value, facts)
 
 
 def _says_it_happened(value: Any) -> bool:
@@ -396,11 +489,12 @@ def settle(
             or _claims_done(chosen.label, facts)
         ):
             update["business_outcome"] = None
-    for prose in ("summary", "headline"):
-        before = getattr(extraction, prose)
-        after = without_unreached(before, facts)
-        if after != before:
-            update[prose] = after
+    for prose, settled in (
+        ("summary", with_where_it_got_to(extraction.summary, facts)),
+        ("headline", without_unreached(extraction.headline, facts)),
+    ):
+        if settled != getattr(extraction, prose):
+            update[prose] = settled
     changed.update(k for k in update if k != "data")
     if not update:
         return extraction, []
@@ -412,6 +506,7 @@ __all__ = [
     "StepFacts",
     "claims_unreached",
     "facts_of",
+    "overstates",
     "prompt_note",
     "settle",
     "step_terms",

@@ -90,6 +90,8 @@ class OutcomeDraft:
     label: str
     meaning: str
     lead_status: LeadMove
+    counts_when: str = ""
+    not_when: str = ""
 
 
 def _invalid(code: str, detail: str) -> ProblemError:
@@ -123,7 +125,12 @@ def with_keys(
         try:
             out.append(
                 BusinessOutcome(
-                    key=key, label=item.label, meaning=item.meaning, lead_status=item.lead_status
+                    key=key,
+                    label=item.label,
+                    meaning=item.meaning,
+                    counts_when=item.counts_when,
+                    not_when=item.not_when,
+                    lead_status=item.lead_status,
                 )
             )
         except ValidationError as exc:

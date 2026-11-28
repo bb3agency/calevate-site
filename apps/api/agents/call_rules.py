@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, Literal
 
 from calevate_shared.call_script import CallScript
 from calevate_shared.opening_notices import (
@@ -41,6 +41,7 @@ from apps.api.agents.script_lint import (
     NAME_PLACEMENT_RULE,
     LintContext,
     names_caller_action,
+    offers_call_back,
     placed_call_opening,
     scenario_lines,
     step_line,
@@ -625,6 +626,121 @@ def reacted_line_problems(script: CallScript) -> list[str]:
     ]
 
 
+# --- The owner's own "Never" rules, read after a call (W3.9, judge half) ------------------
+# An owner's rule is kept as a pinned fact (`kb_facts`, storage unchanged), which the in-call
+# prompt reads as information, so nothing held the agent to it. Here the judge of a practice
+# conversation and the check of a real call read those facts as prohibitions, in the owner's
+# own words. The publish-time check of a script against the same rules is `script_lint`'s.
+#
+# Only a rule naming a promise the code can see in a reply is checked in code (`breaks`):
+# a false "broke your rule" on a real call costs more trust than a missed one. Every other
+# rule still reaches the practice judge as words.
+
+#: A sentence that forbids something, as owners type it.
+_PROHIBITION: Final = re.compile(
+    r"^(?:never|do\s+not|don'?t|must\s+not|mustn'?t|should\s+not|shouldn'?t|avoid)\b", re.I
+)
+_RULE_SENTENCE_END: Final = re.compile(r"(?<=[.!?।])\s+|\s*\n+\s*")
+_RULE_CALL_BACK: Final = re.compile(
+    r"\bcall(?:-|\s)?backs?\b|\bcall\s+(?:them|people|the\s+caller)\s+back\b", re.I
+)
+_RULE_TIME: Final = re.compile(r"\b(?:times?|hours?|when|exact|specific|o'?clock)\b", re.I)
+_RULE_DISCOUNT: Final = re.compile(r"\b(?:discounts?|lower\s+price|cheaper|price\s+cut)\b", re.I)
+_RULE_GUARANTEE: Final = re.compile(r"\bguarantee", re.I)
+#: A clock time in a reply: "5 PM", "5:30", "at 5", "five o'clock", and an hour said with the
+#: call languages' hour words ("5 గంటలకు", "5 baje", "5 बजे").
+_CLOCK: Final = re.compile(
+    r"\b\d{1,2}(?:[:.]\d{2})?\s*(?:[ap]\.?m\b|o'?clock\b)|\b\d{1,2}[:.]\d{2}\b|\bat\s+\d{1,2}\b"
+    r"|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:o'?clock|[ap]\.?m)\b"
+    r"|\b\d{1,2}\s*(?:గంట|baje\b|gantala|बजे)",
+    re.I,
+)
+_REPLY_DISCOUNT: Final = re.compile(
+    r"\bdiscount|\b\d{1,2}\s*%\s*off\b|\bcheaper\b|\blower\s+price\b", re.I
+)
+_REPLY_GUARANTEE: Final = re.compile(r"\bguarantee|\b100\s*%\s*(?:sure|results?)\b", re.I)
+_REPLY_NEGATED: Final = re.compile(
+    r"\b(?:can'?t|cannot|won'?t|not|no|never|unable|don'?t|isn'?t)\b", re.I
+)
+_REPLY_SENTENCE_END: Final = re.compile(r"(?<=[.?!।])\s+")
+
+#: What a rule forbids that a reply can be seen doing; None for a rule only the judge reads.
+OwnerPromise = Literal["call_back_time", "discount", "guarantee"]
+
+
+@dataclass(frozen=True, slots=True)
+class OwnerRule:
+    #: The owner's sentence, word for word.
+    words: str
+    promise: OwnerPromise | None = None
+
+
+def _promise_of(rule: str) -> OwnerPromise | None:
+    if _RULE_CALL_BACK.search(rule) and _RULE_TIME.search(rule):
+        return "call_back_time"
+    if _RULE_DISCOUNT.search(rule):
+        return "discount"
+    if _RULE_GUARANTEE.search(rule):
+        return "guarantee"
+    return None
+
+
+def owner_rules(pinned: Sequence[tuple[str, str]]) -> tuple[OwnerRule, ...]:
+    """The prohibitions among the account's pinned facts, each `(question, answer)`: every
+    sentence of either that opens like one ("Never promise a call-back time."), once."""
+    out: dict[str, OwnerRule] = {}
+    for question, answer in pinned:
+        for part in (question, answer):
+            for sentence in _RULE_SENTENCE_END.split(part or ""):
+                words = " ".join(sentence.split())
+                if words and _PROHIBITION.match(words) and words.casefold() not in out:
+                    out[words.casefold()] = OwnerRule(words=words, promise=_promise_of(words))
+    return tuple(out.values())
+
+
+def breaks(reply: str, rule: OwnerRule) -> bool:
+    """Whether an agent reply does what `rule` forbids, read sentence by sentence: an offered
+    call back with a clock time in the same sentence; a discount or a guarantee said in a
+    sentence that does not deny it. False for a rule with no promise the code can see."""
+    for sentence in _REPLY_SENTENCE_END.split(reply):
+        if rule.promise == "call_back_time":
+            seen = offers_call_back(sentence) and bool(_CLOCK.search(sentence))
+        elif rule.promise == "discount":
+            seen = bool(_REPLY_DISCOUNT.search(sentence))
+        elif rule.promise == "guarantee":
+            seen = bool(_REPLY_GUARANTEE.search(sentence))
+        else:
+            return False
+        denied = rule.promise != "call_back_time" and bool(_REPLY_NEGATED.search(sentence))
+        if seen and not denied:
+            return True
+    return False
+
+
+def broken_rule(reply: str, rules: Sequence[OwnerRule]) -> OwnerRule | None:
+    """The first of `rules` that `reply` breaks, or None."""
+    return next((rule for rule in rules if breaks(reply, rule)), None)
+
+
+def owner_rules_judge(rules: Sequence[OwnerRule]) -> str:
+    """The owner's rules as the practice judge reads them; empty without any. They are the
+    owner's, so they are judged even on a subject the platform otherwise checks itself (call
+    backs)."""
+    if not rules:
+        return ""
+    lines = "\n".join(f"- {rule.words}" for rule in rules)
+    return (
+        "\n\nThe owner's own rules, in the owner's words. These ARE yours to judge, call backs "
+        "included: a reply that breaks one fails the conversation, and the reason names the "
+        f"rule.\n{lines}"
+    )
+
+
+def broken_rule_reason(rule: OwnerRule) -> str:
+    """The verdict's reason for a reply that broke `rule`, quoting the owner."""
+    return f'It broke your rule: "{rule.words}"'
+
+
 __all__ = [
     "CALL_RULES",
     "OPENING_CEILING_CHARS",
@@ -637,10 +753,17 @@ __all__ = [
     "PLACED_WHO_RULE",
     "SCRIPT_FLOW_RULE",
     "CallRule",
+    "OwnerPromise",
+    "OwnerRule",
+    "breaks",
+    "broken_rule",
+    "broken_rule_reason",
     "expect_rules",
     "judge_rules",
     "opening_most",
     "opening_redone_line_problems",
+    "owner_rules",
+    "owner_rules_judge",
     "placed_opening_problems",
     "reacted_line_problems",
     "reason_redone_problems",

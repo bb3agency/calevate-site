@@ -54,7 +54,22 @@
     "",
     "EVERY phone number here is synthetic (repeated-digit runs or a strict descending",
     "run), never a real person's, and every name is a common given name with no surname",
-    "tying it to anyone. tests/eval_quality_test.py enforces that mechanically."
+    "tying it to anyone. tests/eval_quality_test.py enforces that mechanically.",
+    "",
+    "`expect_business_outcome_not` (W3.12) names business outcomes of the neutral starting",
+    "set (`calevate_shared.business_outcomes.STARTING_OUTCOMES`) the call must NOT be filed",
+    "under; scripts/eval.py reads such a case against that set. A caller who wants time to",
+    "think has not said no.",
+    "",
+    "`step_truth_cases` (W3.5) are the summary's truth against a script's steps, scored in",
+    "code by tests/post_call_truth_w3_test.py, not by a model: each names the script's steps",
+    "(`side` for a step reached only by a way out), the step reading, and the summary a",
+    "model and the voice platform wrote. Composed (`workers/step_truth.with_where_it_got_to`)",
+    "the summary must never say done, complete or all steps when the last main step was not",
+    "reached, and must carry the code-built clause in `expect_clause`. The two founder-call",
+    "shapes (27 Nov 21:35 and 28 Nov 00:48) are rebuilt from their step readings and the",
+    "model summaries tests/call_page_truth_2026_11_27_test.py and _28_test.py record; the",
+    "engine summaries are written to make the same claim. Their transcripts are not here."
   ],
   "schema": [
     {
@@ -4115,6 +4130,153 @@
       ],
       "expect_outcome": "answered",
       "note": "6 Nov 2026 call review: asked what they use the app for right after installing it, the caller said 'I only just installed it, how would I be using it already?' and the reading filed 'currently using the app: yes'. A pushback is not a yes: no size and no area, however the agent's question assumed them."
+    },
+    {
+      "id": "re_think_about_it_not_declined",
+      "vertical": "real_estate",
+      "scenario": 1,
+      "title": "Real estate — a polite 'I will think about it' is not 'not interested'",
+      "transcript": [
+        "agent: Namaskaram, idi Skyline Ventures AI assistant. Ee call record avutundi.",
+        "caller: Namaskaram, cheppandi.",
+        "agent: Kondapur lo maa kotta project lo 2BHK flats unnayi. Meeku interest unda?",
+        "caller: Hmm, baagundi andi. Nenu intlo matladi alochinchi cheptanu.",
+        "agent: Tappakunda. Brochure pampamantara?",
+        "caller: Ippudu vaddu andi, tarvata chuddam."
+      ],
+      "expect": {},
+      "expect_absent": [
+        "budget_lakhs",
+        "visit_date",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to",
+        "party_size"
+      ],
+      "expect_business_outcome_not": [
+        "not_interested"
+      ],
+      "note": "W3.12. The caller wants to talk it over at home and decide later; they declined only the brochure, not the flat. Filing this 'Not interested' tells the owner to drop a lead who asked for time."
+    },
+    {
+      "id": "re_think_about_it_english",
+      "vertical": "real_estate",
+      "scenario": 1,
+      "title": "Real estate — 'let me think it over' in English is not a no",
+      "transcript": [
+        "agent: Hello, this is the Skyline Ventures AI assistant. This call is recorded.",
+        "caller: Yes, hello.",
+        "agent: We have new 3BHK flats in Gachibowli. Would you like to know more?",
+        "caller: It sounds good, but let me think it over and discuss with my family first.",
+        "agent: Of course. Shall I call again next week?",
+        "caller: I will get back to you myself."
+      ],
+      "expect": {},
+      "expect_absent": [
+        "budget_lakhs",
+        "visit_date",
+        "callback_time",
+        "callback_number",
+        "number_belongs_to"
+      ],
+      "expect_business_outcome_not": [
+        "not_interested"
+      ],
+      "note": "W3.12. 'Let me think it over' and 'I will get back to you' are a decision put off, not refused."
+    }
+  ],
+  "step_truth_cases": [
+    {
+      "id": "founder_2135_stopped_two_short",
+      "title": "27 Nov 21:35 — the caller stopped before the last steps; the agent said the set-up was finished",
+      "steps": [
+        "Introduction",
+        "Why we called",
+        "Install the app",
+        "Login",
+        "Language",
+        "Add a branch",
+        "First entry",
+        "First sale",
+        "Dashboard",
+        "Close"
+      ],
+      "reading": {
+        "1": "reached",
+        "2": "reached",
+        "9": "not_reached"
+      },
+      "model_summary": "The caller installed the app and logged in with the agent's help. The call ended with the agent saying the setup was complete.",
+      "engine_summary": "The caller completed the full app setup with the agent's guidance.",
+      "expect_clause": "The call reached \"Why we called\" and did not reach \"Dashboard\" or the step after it."
+    },
+    {
+      "id": "founder_0048_all_steps_claimed",
+      "title": "28 Nov 00:48 — 'confirmed completion of all steps' on a call that stopped at the sale",
+      "steps": [
+        "Introduction",
+        "Why we called",
+        "side:Signs up first",
+        "App on the home screen",
+        "Login",
+        "Language",
+        "Add a branch",
+        "First entry",
+        "First sale",
+        "Dashboard",
+        "Close"
+      ],
+      "reading": {
+        "1": "reached",
+        "2": "reached",
+        "4": "reached",
+        "5": "reached",
+        "6": "reached",
+        "7": "reached",
+        "8": "reached",
+        "10": "not_reached",
+        "11": "not_reached"
+      },
+      "model_summary": "The caller agreed to install the app on their phone, including adding a branch, recording an entry and saving a sale. They confirmed completion of all steps and the app is now installed.",
+      "engine_summary": "All steps of the setup were completed successfully.",
+      "expect_clause": "The call reached \"First entry\" and did not reach \"Dashboard\" or the step after it."
+    },
+    {
+      "id": "unclear_end_no_completion",
+      "title": "Every step unclear after the second: nothing may call the job done",
+      "steps": [
+        "Greeting",
+        "Reason",
+        "Choose a plan",
+        "Confirm the address",
+        "Close"
+      ],
+      "reading": {
+        "1": "reached",
+        "2": "reached"
+      },
+      "model_summary": "The caller chose a plan and everything is done.",
+      "engine_summary": "",
+      "expect_clause": "The call reached \"Reason\"."
+    },
+    {
+      "id": "finished_call_keeps_its_prose",
+      "title": "A call that reached every step keeps its prose and says so",
+      "steps": [
+        "Greeting",
+        "Reason",
+        "Choose a plan",
+        "Close"
+      ],
+      "reading": {
+        "1": "reached",
+        "2": "reached",
+        "3": "reached",
+        "4": "reached"
+      },
+      "model_summary": "The caller chose the yearly plan and asked for the invoice by email.",
+      "engine_summary": "",
+      "expect_clause": "The call went through every step of the script."
     }
   ]
 }

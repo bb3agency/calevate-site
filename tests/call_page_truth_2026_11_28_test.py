@@ -300,7 +300,8 @@ def test_a_detail_about_a_reached_step_stands_on_a_call_that_stopped_later() -> 
     # About the whole task, on a call that stopped short: goes.
     assert out.data == {"installation_status": "Successfully installed"}
     assert {"dashboard_status", "dashboard_seen", "interaction_outcome", "summary"} <= set(changed)
-    assert out.summary.endswith("The app is now installed.")
+    assert "The app is now installed." in out.summary
+    assert out.summary.endswith('did not reach "Dashboard" or the step after it.')
 
 
 def test_a_detail_about_an_unreached_step_saying_it_is_not_done_stays() -> None:

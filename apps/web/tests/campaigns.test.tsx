@@ -127,9 +127,9 @@ const OUTCOMES: CallOutcomes = {
       starting: false,
       draft: "done",
       outcomes: [
-        { key: "booked_visit", label: "Booked a visit", meaning: "", lead_status: "hot" },
-        { key: "wants_price", label: "Wants the price list", meaning: "", lead_status: "interested" },
-        { key: "not_now", label: "Not now", meaning: "", lead_status: "contacted" },
+        { key: "booked_visit", label: "Booked a visit", meaning: "", counts_when: "", not_when: "", lead_status: "hot" },
+        { key: "wants_price", label: "Wants the price list", meaning: "", counts_when: "", not_when: "", lead_status: "interested" },
+        { key: "not_now", label: "Not now", meaning: "", counts_when: "", not_when: "", lead_status: "contacted" },
       ],
     },
   ],

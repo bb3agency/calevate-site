@@ -126,6 +126,7 @@ from apps.workers.extraction import (
     get_extractor,
 )
 from apps.workers.redaction import redact, spoken_digit_runs
+from calevate_shared.business_outcomes import STARTING_OUTCOMES
 from calevate_shared.extraction import (
     DEFAULT_EXTRACTION_LANGUAGE,
     ExtractionField,
@@ -470,7 +471,16 @@ async def run_case(
     # spells it; the prompt names it (C3). Absent means the product default.
     languages = (str(case.get("language") or DEFAULT_EXTRACTION_LANGUAGE),)
     usage_before = getattr(extractor, "last_usage", None)
-    output = await extract_call(spec, transcript, extractor=extractor, languages=languages)
+    # A case naming business outcomes the call must NOT be filed under is read against the
+    # neutral starting set (W3.12: a polite "I'll think about it" is not "Not interested").
+    refused_outcomes = case.get("expect_business_outcome_not") or []
+    output = await extract_call(
+        spec,
+        transcript,
+        extractor=extractor,
+        languages=languages,
+        outcomes=STARTING_OUTCOMES if refused_outcomes else (),
+    )
     usage_after = getattr(extractor, "last_usage", None)
     # Compared by identity: a pass that never reached the model (an empty transcript)
     # leaves the previous case's usage in place, and that is not this case's cost.
@@ -508,6 +518,9 @@ async def run_case(
     expected_outcome = case.get("expect_outcome")
     if expected_outcome and output.outcome_tag != expected_outcome:
         result.fail(OUTCOME, f"outcome: expected {expected_outcome}, got {output.outcome_tag}")
+
+    if output.business_outcome in refused_outcomes:
+        result.fail(OUTCOME, f"business outcome: {output.business_outcome} is ruled out")
 
     if output.errors:
         result.fail(SCHEMA, f"schema validation errors: {sorted(output.errors)}")

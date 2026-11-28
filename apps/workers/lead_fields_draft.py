@@ -30,7 +30,12 @@ from typing import Any, Final, cast
 from uuid import UUID
 
 from calevate_shared.business_frame import BUSINESS_KIND
-from calevate_shared.extraction import ExtractionField, FieldType, is_phone_field
+from calevate_shared.extraction import (
+    ExtractionField,
+    FieldType,
+    call_level_detail,
+    is_phone_field,
+)
 from calevate_shared.lead_fields import CORE_KEYS, CORE_LEAD_FIELDS, OUTPUT_KEYS
 from sqlalchemy import text
 
@@ -84,8 +89,13 @@ SYSTEM_PROMPT: Final = (
     "telling the note-taker exactly what to listen for in the caller's own words), "
     "required (true for at most one detail, the one every caller gives), and choices "
     "(2 to 6 short values, only when type is enum; otherwise an empty list). "
-    "Use bool only for a clear yes/no the caller states. Use number only for a plain "
-    "count or amount, and say the unit in the label. "
+    "Each detail is something the caller SAYS: a day or time, a choice, an amount, a "
+    "place, a name of a thing. Never a status, progress, outcome, result or goal detail: "
+    "how far the call got and how it ended are already recorded from the agent's steps "
+    "and outcomes, and a second copy disagrees with them. "
+    "Type each by its answer: date for a day, number for a plain count or amount (say "
+    "the unit in the label), enum for one of a few fixed choices, bool only for a clear "
+    "yes/no the caller states, text only when the answer is free words. "
     "Never ask for a phone number, email, address proof, Aadhaar, PAN, bank or card "
     "details, passwords, religion, caste, or health conditions unless the business is "
     "itself a health business. Do not invent prices, products or services the "
@@ -135,8 +145,13 @@ def fields_from_model(raw: dict[str, Any]) -> list[ExtractionField]:
     """The model's answer as fields the editor and the extractor accept, or fewer.
 
     Tolerant by design: a malformed item is dropped rather than failing the draft. Dropped
-    too: anything that collides with the core or a fixed Leads column, a duplicate, and
-    anything the extractor would treat as a phone field (the core already has one).
+    too: anything that collides with the core or a fixed Leads column, a duplicate, anything
+    the extractor would treat as a phone field (the core already has one), and a judgement
+    of the call (`call_level_detail`: a status, progress, outcome, result or goal). Every
+    agent reads where its calls got to from its steps and how they ended from its outcomes
+    (its own, or `STARTING_OUTCOMES` until drafted), so such a field only restates them, and
+    on the Rytu Khata call of 28 Nov 2026 "Installation Status" said "Not mentioned" of a
+    step the step reading showed confirmed.
     """
     items = raw.get("fields")
     if not isinstance(items, list):
@@ -152,6 +167,7 @@ def fields_from_model(raw: dict[str, Any]) -> list[ExtractionField]:
         kind = str(item.get("type", "text"))
         if (
             not label
+            or call_level_detail(label)
             or label.lower() in labels_seen
             or kind
             not in (
