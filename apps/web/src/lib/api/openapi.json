@@ -11523,6 +11523,12 @@
       "CallOutcomeIn": {
         "additionalProperties": false,
         "properties": {
+          "counts_when": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Counts When",
+            "type": "string"
+          },
           "key": {
             "anyOf": [
               {
@@ -11556,6 +11562,12 @@
             "maxLength": 200,
             "title": "Meaning",
             "type": "string"
+          },
+          "not_when": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Not When",
+            "type": "string"
           }
         },
         "required": [
@@ -11567,6 +11579,10 @@
       "CallOutcomeOut": {
         "additionalProperties": false,
         "properties": {
+          "counts_when": {
+            "title": "Counts When",
+            "type": "string"
+          },
           "key": {
             "title": "Key",
             "type": "string"
@@ -11587,12 +11603,18 @@
           "meaning": {
             "title": "Meaning",
             "type": "string"
+          },
+          "not_when": {
+            "title": "Not When",
+            "type": "string"
           }
         },
         "required": [
           "key",
           "label",
           "meaning",
+          "counts_when",
+          "not_when",
           "lead_status"
         ],
         "title": "CallOutcomeOut",

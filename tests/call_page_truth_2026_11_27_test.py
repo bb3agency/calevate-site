@@ -159,7 +159,11 @@ def test_the_agents_claim_of_completion_is_not_the_outcome_or_the_summary() -> N
     )
     out, changed = step_truth.settle(told, facts, SPEC, goal=None, outcomes=())
     assert out.data == {}
-    assert out.summary == "The caller installed the app and logged in with the agent's help."
+    # The prose keeps what happened; where the call got to is the code's (W3.5).
+    assert out.summary == (
+        "The caller installed the app and logged in with the agent's help. The call reached "
+        '"Why we called" and did not reach "Dashboard" or the step after it.'
+    )
     assert {"setup_progress", "interaction_outcome", "summary"} <= set(changed)
 
 

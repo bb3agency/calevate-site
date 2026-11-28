@@ -87,6 +87,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.actions import service as action_service
 from apps.api.agents import handoff, script_builder, trial_results
 from apps.api.agents.business_fit import UNKNOWN, BusinessFit, business_fit
+from apps.api.agents.call_rules import OwnerRule, broken_rule, broken_rule_reason, owner_rules
 from apps.api.agents.mistake_fixes import Holder
 from apps.api.agents.models import PUBLISHED_STATUSES
 from apps.api.agents.script_lint import CapabilityManifest, presumed_lines
@@ -710,6 +711,9 @@ class RuleContext:
     #: The business's name, left as written when a reply is checked for English letters;
     #: None where nobody read the agent, which skips that check.
     names: tuple[str, ...] | None = None
+    #: The owner's "Never" rules among the pinned facts (`call_rules.owner_rules`), so a
+    #: reply doing what one forbids fails in code whatever the judge says (W3.9).
+    owner_rules: tuple[OwnerRule, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -912,6 +916,14 @@ def hard_check(
         problems = [p for p in problems if p.kind != "wrong_language"]
     sounds = tuple(p for p in problems if p.kind in SOUND_KINDS)
     job = [p for p in problems if p.kind in JOB_KINDS]
+    broken = next(
+        (rule for turn in turns if (rule := broken_rule(turn.reply, rules.owner_rules))), None
+    )
+    if broken is not None:
+        # The owner's own rule: theirs to keep, so the script is what the improver changes.
+        return HardCheck(
+            verdict="failed", reason=broken_rule_reason(broken), fix="script_step", sounds=sounds
+        )
     opt_out = _opt_out_check(turns) if scenario.probe == "stop_calling" else None
     if opt_out is not None and opt_out.verdict == "failed":
         return replace(opt_out, sounds=sounds)
@@ -1134,6 +1146,7 @@ class AgentBrief:
                 hand_over=self.hand_over == "someone_on_duty",
             ),
             today=ist_wall_clock(datetime.now(UTC)).date(),
+            owner_rules=owner_rules([(q, a) for _id, q, a in self.pinned_facts]),
             known=" ".join(
                 (
                     self.opening_line,

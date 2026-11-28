@@ -54,14 +54,27 @@ export interface OutcomeRow {
   key: string | null;
   label: string;
   meaning: string;
+  counts_when: string;
+  not_when: string;
   lead_status: LeadMove;
 }
+
+/** The longest "Counts when" / "Not when" line (`business_outcomes.CONDITION_MAX`). */
+const CONDITION_MAX = 120;
 
 let nextUid = 0;
 const uid = () => `outcome-${(nextUid += 1)}`;
 
 export function toRows(agent: Pick<CallOutcomesAgent, "outcomes">): OutcomeRow[] {
-  return agent.outcomes.map((o) => ({ uid: uid(), key: o.key, label: o.label, meaning: o.meaning, lead_status: o.lead_status }));
+  return agent.outcomes.map((o) => ({
+    uid: uid(),
+    key: o.key,
+    label: o.label,
+    meaning: o.meaning,
+    counts_when: o.counts_when,
+    not_when: o.not_when,
+    lead_status: o.lead_status,
+  }));
 }
 
 export function toWire(rows: readonly OutcomeRow[]): CallOutcomeIn[] {
@@ -69,6 +82,8 @@ export function toWire(rows: readonly OutcomeRow[]): CallOutcomeIn[] {
     key: row.key,
     label: row.label.trim(),
     meaning: row.meaning.trim(),
+    counts_when: row.counts_when.trim(),
+    not_when: row.not_when.trim(),
     lead_status: row.lead_status,
   }));
 }
@@ -368,6 +383,32 @@ function OutcomesEditor({
                     className={`${FIELD} field-sizing-content min-h-16 resize-none`}
                   />
                 </label>
+                {/* Two short lines that tell close outcomes apart: what makes a call this
+                    one, and the nearest call that is not. Read by the call notes as written. */}
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className={FIELD_LABEL}>Counts when</span>
+                    <input
+                      maxLength={CONDITION_MAX}
+                      value={row.counts_when}
+                      disabled={disabled}
+                      onChange={(event) => patch(row.uid, { counts_when: event.target.value })}
+                      placeholder="e.g. They say yes to it"
+                      className={FIELD}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className={FIELD_LABEL}>Not when</span>
+                    <input
+                      maxLength={CONDITION_MAX}
+                      value={row.not_when}
+                      disabled={disabled}
+                      onChange={(event) => patch(row.uid, { not_when: event.target.value })}
+                      placeholder="e.g. They only want time to think"
+                      className={FIELD}
+                    />
+                  </label>
+                </div>
               </li>
             );
           })}
@@ -379,7 +420,7 @@ function OutcomesEditor({
         className={SECONDARY_BUTTON}
         disabled={disabled || rows.length >= max}
         onClick={() =>
-          setRows((current) => [...current, { uid: uid(), key: null, label: "", meaning: "", lead_status: "contacted" }])
+          setRows((current) => [...current, { uid: uid(), key: null, label: "", meaning: "", counts_when: "", not_when: "", lead_status: "contacted" }])
         }
       >
         <Plus aria-hidden className="h-4 w-4" />

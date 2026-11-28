@@ -39,7 +39,14 @@ from calevate_shared.spoken_guard import (
 )
 
 from apps.api.agents.assist_leg import google_assist_leg
-from apps.api.agents.call_rules import OPENING_LINE_RULE, expect_rules, judge_rules, writer_rules
+from apps.api.agents.call_rules import (
+    OPENING_LINE_RULE,
+    expect_rules,
+    judge_rules,
+    owner_rules,
+    owner_rules_judge,
+    writer_rules,
+)
 from apps.api.agents.fix_guard import grounding_problem, stored_problem
 from apps.api.agents.script_edits import (
     EDIT_OPS,
@@ -605,8 +612,10 @@ async def judge_conversations(
 ) -> JsonAnswer[dict[str, Judged]]:
     """The judge's verdict on every conversation, in one request, in the order given. The
     rule checks (`PROBES`) are decided in code and are never among them."""
+    rules = owner_rules([(q, a) for _id, q, a in brief.pinned_facts])
     return await ask_json(
         brief_text(brief, history=False)
+        + owner_rules_judge(rules)
         + "\n\nConversations to check:\n\n"
         + "\n\n".join(conversations),
         JUDGE_INSTRUCTION,

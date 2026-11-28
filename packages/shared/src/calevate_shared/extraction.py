@@ -1183,8 +1183,12 @@ def _business_outcome_section(
     if not outcomes:
         return ""
     width = max(len(o.key) for o in outcomes) + 2
+    pad = " " * (width + 5)
     rows = "\n".join(
-        f"    {o.key:<{width}} {o.label}" + (f": {o.meaning}" if o.meaning else "")
+        f"    {o.key:<{width}} {o.label}"
+        + (f": {o.meaning}" if o.meaning else "")
+        + (f"\n{pad}Counts when: {o.counts_when}" if o.counts_when else "")
+        + (f"\n{pad}Not when: {o.not_when}" if o.not_when else "")
         for o in outcomes
     )
     return (
@@ -1195,7 +1199,9 @@ def _business_outcome_section(
         "  it. A caller who gave no clear answer (who only repeated a word, went quiet, or\n"
         "  went round in circles with the agent) is null, never the nearest line. A line\n"
         "  saying the caller declined, is not interested, is the wrong person or has the\n"
-        "  wrong number needs the caller to have said so.\n"
+        "  wrong number needs the caller to have said so. A line is never chosen for a call\n"
+        '  its "Not when" describes. A caller who wants time to think, asks to be called\n'
+        "  later or says not now has not declined.\n"
         + (
             "  The campaign goal comes first: when goal_reached is yes and a line below\n"
             "  names that goal, choose that line; never choose a line naming the goal when\n"
@@ -1576,6 +1582,9 @@ def _steps_section(steps: str | None) -> str:
         "  agree with this. A step that was not reached did not happen on this call: never\n"
         "  say it was done, recorded, completed or successful, and never say the goal it\n"
         "  stands for was met.\n"
+        "- The summary says only what the caller wanted and what they said. How far the\n"
+        "  call got through the steps is added to it from the list above, so it never says\n"
+        "  a step, the task or the call was done, completed or finished.\n"
     )
 
 

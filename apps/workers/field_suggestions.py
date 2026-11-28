@@ -33,7 +33,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from calevate_shared.business_frame import BUSINESS_KIND
-from calevate_shared.extraction import ExtractionField
+from calevate_shared.extraction import ExtractionField, FieldType, call_level_detail
 from calevate_shared.lead_fields import CORE_KEYS, OUTPUT_KEYS
 from calevate_shared.lead_fields import CORE_LEAD_FIELDS as CORE_FIELDS
 from sqlalchemy import text
@@ -92,6 +92,8 @@ FACTS_CHARS: Final = 2000
 UNLISTED_PER_FIELD: Final = 10
 #: Choices a suggested new field may have.
 NEW_FIELD_CHOICES: Final = (2, 12)
+#: The types a suggested new field may take: what a caller says, typed by its answer.
+NEW_FIELD_TYPES: Final = ("text", "enum", "number", "date")
 
 SYSTEM_PROMPT: Final = (
     f"You keep one phone agent's lead details in step with the {BUSINESS_KIND} it works "
@@ -102,8 +104,10 @@ SYSTEM_PROMPT: Final = (
     "recently asked for that none of a detail's choices fitted, with how many callers said "
     "it.\n"
     "A detail earns its place only if the owner would ACT on it after the call to reach what "
-    "this campaign or line is for: whether that aim was met, how interested the person is, "
-    "what stops them, what to follow up on, or what qualifies them. A question the script "
+    "this campaign or line is for: how interested the person is, what stops them, what to "
+    "follow up on, or what qualifies them. Never a status, progress, outcome, result or goal "
+    "detail: whether the aim was met and how far the call got are already read from the "
+    "script's steps and the agent's outcomes. A question the script "
     "asks only to steer the conversation (which device someone uses, so the agent can give "
     "the right steps) is not a lead detail, unless the owner would act on the answer.\n"
     "Suggest only changes that make the details fit THIS business better, of three kinds:\n"
@@ -123,12 +127,14 @@ SYSTEM_PROMPT: Final = (
     "follow-up beside an outcome with a follow-up choice). When an existing detail nearly "
     "fits, add_choices to it instead. When the current lead details are EMPTY, propose the "
     "starting set: 3 to "
-    f"{MAX_FIELD_SUGGESTIONS} new details, the first recording whether the aim was met. "
+    f"{MAX_FIELD_SUGGESTIONS} new details, each something callers say. "
     "Never a detail for the "
     "caller's name, phone number, preferred time, language, notes or what they want: every "
     "lead already records those. Give a label of 2 to 4 plain words, choices when a short "
     f"fixed list fits ({NEW_FIELD_CHOICES[0]} to {NEW_FIELD_CHOICES[1]}) or none for free "
-    "text, a hint: one sentence telling the note-taker what to record, and evidence: the "
+    "text, a type: date for a day, number for a count or amount, enum when it has choices, "
+    "text otherwise, a hint: one sentence telling the note-taker what to record, and "
+    "evidence: the "
     "words of what it is for, of the script, or of the callers' answers, that this detail "
     "serves, copied exactly as they are written there. Any other suggestion leaves evidence "
     "empty.\n"
@@ -139,7 +145,8 @@ SYSTEM_PROMPT: Final = (
     f"{MAX_FIELD_SUGGESTIONS} suggestions; none at all is a good answer when the details "
     "already fit. Return ONLY JSON: "
     '{"suggestions": [{"kind": str, "field_key": str or null, "label": str or null, '
-    '"values": [str], "hint": str or null, "reason": str, "source": str, "evidence": str}]}.'
+    '"values": [str], "type": str, "hint": str or null, "reason": str, "source": str, '
+    '"evidence": str}]}.'
 )
 
 _ANSWER_SCHEMA: Final = {
@@ -157,6 +164,7 @@ _ANSWER_SCHEMA: Final = {
                     "field_key": {"type": ["string", "null"]},
                     "label": {"type": ["string", "null"]},
                     "values": {"type": "array", "items": {"type": "string"}},
+                    "type": {"type": "string", "enum": list(NEW_FIELD_TYPES)},
                     "hint": {"type": ["string", "null"]},
                     "reason": {"type": "string"},
                     "source": {
@@ -170,6 +178,7 @@ _ANSWER_SCHEMA: Final = {
                     "field_key",
                     "label",
                     "values",
+                    "type",
                     "hint",
                     "reason",
                     "source",
@@ -426,12 +435,20 @@ def _new_field(
     labels = {normalise(f.label) for f in inputs.fields} | {normalise(f.label) for f in CORE_FIELDS}
     if key is None or key in taken or normalise(label) in labels:
         return None
+    # A judgement of the call restates the step reading and the outcome, and disagreed with
+    # them on the Rytu Khata call of 28 Nov 2026 (`lead_fields_draft.fields_from_model`).
+    if call_level_detail(key, label):
+        return None
     low, high = NEW_FIELD_CHOICES
     choices = values if low <= len(values) <= high else []
+    asked = item.get("type")
+    kind: FieldType = "enum" if choices else ("number" if asked == "number" else "text")
+    if not choices and asked == "date":
+        kind = "date"
     candidate = ExtractionField(
         key=key,
         label=label,
-        type="enum" if choices else "text",
+        type=kind,
         enum_values=choices or None,
         reason=_clip(item.get("hint"), HINT_MAX),
         required=False,

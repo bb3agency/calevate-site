@@ -19642,6 +19642,11 @@ export interface components {
         };
         /** CallOutcomeIn */
         CallOutcomeIn: {
+            /**
+             * Counts When
+             * @default
+             */
+            counts_when: string;
             /** Key */
             key?: string | null;
             /** Label */
@@ -19657,9 +19662,16 @@ export interface components {
              * @default
              */
             meaning: string;
+            /**
+             * Not When
+             * @default
+             */
+            not_when: string;
         };
         /** CallOutcomeOut */
         CallOutcomeOut: {
+            /** Counts When */
+            counts_when: string;
             /** Key */
             key: string;
             /** Label */
@@ -19671,6 +19683,8 @@ export interface components {
             lead_status: "contacted" | "interested" | "hot";
             /** Meaning */
             meaning: string;
+            /** Not When */
+            not_when: string;
         };
         /** CallOutcomesAgentOut */
         CallOutcomesAgentOut: {

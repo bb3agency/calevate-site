@@ -35,6 +35,7 @@ default view (hard rule 5).
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from typing import Any, Final, Literal, Protocol
 
@@ -46,6 +47,7 @@ from calevate_shared.extraction import (
     whole_call_detail,
 )
 from calevate_shared.languages import LANGUAGES
+from calevate_shared.spoken_guard import reads_as_romanised
 
 #: What produced a marker. Selects the wording and the trust a reader places in it.
 MomentSource = Literal["derived", "model"]
@@ -169,11 +171,18 @@ def anchor_turn(value: Any, turns: Sequence[Turn]) -> Turn | None:
     return None
 
 
+#: Marks that sit inside a word and change nothing a person reads: a quote copied with a
+#: zero-width joiner and a turn without one are the same words (`campaign_script_ask._plain`).
+_IN_WORD_MARKS: Final = dict.fromkeys(map(ord, "\u200c\u200d\u00ad\u2060"))
+
+
 def content_words(text: str) -> set[str]:
-    """The words of `text` long enough to say what it is about, casefolded."""
+    """The words of `text` long enough to say what it is about, casefolded, composed (NFC)
+    and without in-word marks."""
+    plain = unicodedata.normalize("NFC", text.translate(_IN_WORD_MARKS)).casefold()
     return {
         token
-        for token in _TOKEN_SPLIT.split(text.casefold())
+        for token in _TOKEN_SPLIT.split(plain)
         if len(token) >= MIN_SUPPORT_TOKEN_CHARS and token not in _FUNCTION_WORDS
     }
 
@@ -206,10 +215,16 @@ _NON_LATIN_FROM: Final = 0x370
 
 def quotes_the_call(value: Any) -> bool:
     """Whether a captured value is a quote of the call's words rather than a reading of them:
-    text holding a letter of a non-Latin script. "Expense tracking" read from a Telugu line
-    shares no word with it and is still right; a Telugu sentence that shares none is a line
-    nobody said on that turn."""
-    return isinstance(value, str) and any(ord(c) >= _NON_LATIN_FROM and c.isalpha() for c in value)
+    text holding a letter of a non-Latin script, or the call's language in Latin letters
+    (`reads_as_romanised`: "repu udayam vastanu", the form a code-mixed transcript is in).
+    "Expense tracking" read from a Telugu line shares no word with it and is still right; a
+    Telugu sentence, or a romanised one, that shares none is a line nobody said on that
+    turn."""
+    if not isinstance(value, str):
+        return False
+    return any(ord(c) >= _NON_LATIN_FROM and c.isalpha() for c in value) or reads_as_romanised(
+        value
+    )
 
 
 def said_on(value: Any, text: str) -> bool:

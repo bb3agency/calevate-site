@@ -90,8 +90,8 @@ const STARTING_AGENT: CallOutcomes["agents"][number] = {
   starting: true,
   draft: "queued",
   outcomes: [
-    { key: "wants_to_buy", label: "Wants to buy or book", meaning: "The caller wants to buy.", lead_status: "interested" },
-    { key: "not_interested", label: "Not interested", meaning: "", lead_status: "contacted" },
+    { key: "wants_to_buy", label: "Wants to buy or book", meaning: "The caller wants to buy.", counts_when: "", not_when: "", lead_status: "interested" },
+    { key: "not_interested", label: "Not interested", meaning: "", counts_when: "", not_when: "", lead_status: "contacted" },
   ],
 };
 
@@ -351,7 +351,7 @@ describe("how calls end (D-836)", () => {
     const owned = { ...STARTING_AGENT, starting: false, draft: "done" as const };
     const stored = {
       ...owned,
-      outcomes: [...owned.outcomes, { key: "asked_price", label: "Asked price only", meaning: "", lead_status: "contacted" as const }],
+      outcomes: [...owned.outcomes, { key: "asked_price", label: "Asked price only", meaning: "", counts_when: "", not_when: "", lead_status: "contacted" as const }],
     };
     let saves = 0;
     const { calls } = await renderClientPage(<LeadDetailsScreen />, {
@@ -401,7 +401,7 @@ describe("how calls end (D-836)", () => {
   });
 
   it("keeps what was typed while a save was out, with the key that save gave the new row", () => {
-    const row = (key: string | null, label: string): OutcomeRow => ({ uid: label, key, label, meaning: "", lead_status: "contacted" });
+    const row = (key: string | null, label: string): OutcomeRow => ({ uid: label, key, label, meaning: "", counts_when: "", not_when: "", lead_status: "contacted" });
     const before = JSON.stringify(toWire([row("a", "First")]));
     const sent = JSON.stringify(toWire([row("a", "First"), row(null, "Asked price")]));
     const typing = [row("a", "First"), row(null, "Asked price only")];

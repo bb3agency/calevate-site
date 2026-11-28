@@ -144,6 +144,9 @@ Kind = Literal[
     # none. Read off the call's lookup count (`call_mistakes.lookup_figures`), not by a reply
     # check: a real call does not say which turns looked something up.
     "missed_lookup",
+    # W3.9: an owner's "Never" rule broken (`call_mistakes.owner_rule_mistakes`), read with
+    # the account's pinned facts, which no reply check here has.
+    "owner_rule_broken",
 ]
 
 #: How a reply SOUNDS (D-828): the words, numbers, punctuation, length and language of a
@@ -229,6 +232,8 @@ JOB_KINDS: Final = frozenset(
         # The knowledge section's rule (`calevate_shared.engine._knowledge_section`), an
         # in-call behaviour no script line causes (`mistake_lints.IN_CALL_KINDS`).
         "missed_lookup",
+        # An owner's rule broken on the call; the script half is refused at publish.
+        "owner_rule_broken",
     }
 )
 #: The `JOB_KINDS` the owner's script causes, so the improver may fix them, not us: the line
@@ -238,7 +243,7 @@ SCRIPT_KINDS: Final = frozenset({"presumed_state"})
 #: The `JOB_KINDS` no line of a script causes: how the agent behaves during the call, which
 #: the platform prompt decides. The healer opens no script fix for them
 #: (`mistake_fixes.open_fixes`) and they have no script check (`mistake_lints`).
-IN_CALL_KINDS: Final = frozenset({"missed_lookup", "claimed_complete"})
+IN_CALL_KINDS: Final = frozenset({"missed_lookup", "claimed_complete", "owner_rule_broken"})
 
 #: A turn's sentences, at most, unless the caller asked for detail (founder, 11 Oct 2026).
 MAX_SENTENCES: Final = 2

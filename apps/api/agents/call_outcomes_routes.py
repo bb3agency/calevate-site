@@ -15,6 +15,7 @@ from typing import Annotated, Literal, cast
 from uuid import UUID
 
 from calevate_shared.business_outcomes import (
+    CONDITION_MAX,
     LABEL_MAX,
     MAX_BUSINESS_OUTCOMES,
     MEANING_MAX,
@@ -54,6 +55,10 @@ class CallOutcomeOut(_Out):
     key: str
     label: str
     meaning: str
+    #: What the caller says or does that makes a call this outcome; "" when unset.
+    counts_when: str
+    #: The nearest case that is not this outcome; "" when unset.
+    not_when: str
     #: How far a call with this outcome moves its lead: contacted, interested or hot.
     lead_status: LeadMove
 
@@ -82,6 +87,8 @@ class CallOutcomeIn(BaseModel):
     key: str | None = Field(default=None, max_length=40)
     label: str = Field(min_length=1, max_length=LABEL_MAX)
     meaning: str = Field(default="", max_length=MEANING_MAX)
+    counts_when: str = Field(default="", max_length=CONDITION_MAX)
+    not_when: str = Field(default="", max_length=CONDITION_MAX)
     lead_status: LeadMove = "contacted"
 
 
@@ -92,7 +99,14 @@ class CallOutcomesIn(BaseModel):
 
 
 def _outcome_out(o: BusinessOutcome) -> CallOutcomeOut:
-    return CallOutcomeOut(key=o.key, label=o.label, meaning=o.meaning, lead_status=o.lead_status)
+    return CallOutcomeOut(
+        key=o.key,
+        label=o.label,
+        meaning=o.meaning,
+        counts_when=o.counts_when,
+        not_when=o.not_when,
+        lead_status=o.lead_status,
+    )
 
 
 def _agent_out(row: dict[str, object]) -> CallOutcomesAgentOut:
@@ -142,7 +156,12 @@ async def put_call_outcomes(
         agent_id=agent_id,
         items=[
             service.OutcomeDraft(
-                key=i.key, label=i.label, meaning=i.meaning, lead_status=i.lead_status
+                key=i.key,
+                label=i.label,
+                meaning=i.meaning,
+                lead_status=i.lead_status,
+                counts_when=i.counts_when,
+                not_when=i.not_when,
             )
             for i in payload.outcomes
         ],

@@ -11,6 +11,7 @@ filled in. The transcript is an English stand-in; nothing here names any one bus
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from types import SimpleNamespace
 from typing import Any
@@ -241,8 +242,14 @@ def _model_output() -> ExtractionOutput:
     )
 
 
+#: Where the summary's code-built clause starts (`step_truth.where_it_got_to`), which names
+#: the step the call did not reach, and so its words, as not reached.
+_WHERE_IT_GOT_TO = re.compile(r"\s*The call (?:reached|did not get to|stopped before|went) ")
+
+
 def _no_expense(text: str) -> None:
-    assert "expense" not in text.casefold(), text
+    prose = _WHERE_IT_GOT_TO.split(text, maxsplit=1)[0]
+    assert "expense" not in prose.casefold(), text
 
 
 def _assert_truthful(out: ExtractionOutput) -> None:
@@ -288,7 +295,10 @@ def test_with_pip_off_the_transcript_still_settles_the_notes() -> None:
     assert out.business_outcome is None
     assert out.data["installation_status"] == "Successfully installed"
     assert out.data["notes"] == "The caller installed the app, logged in and added farm details."
-    assert out.summary == "The caller installed the app, logged in and added their farm details."
+    assert out.summary == (
+        "The caller installed the app, logged in and added their farm details. "
+        'The call did not get to "Enter Expenses".'
+    )
     assert {"summary", "goal_reached", "setup_progress"} <= set(changed)
 
 
@@ -363,7 +373,9 @@ def test_a_finished_call_keeps_its_success() -> None:
     )
     facts = step_truth.facts_of(SCRIPT, finished, _turns())
     out, changed = step_truth.settle(_model_output(), facts, SPEC, goal=GOAL, outcomes=OUTCOMES)
-    assert changed == []
+    # Only the summary gains its code-built clause (W3.5); every value stands.
+    assert changed == ["summary"]
+    assert out.summary.endswith("The call went through every step of the script.")
     assert out.data["interaction_outcome"] == "Setup successful"
 
 
@@ -378,13 +390,13 @@ def test_an_engine_summary_that_claims_the_step_gives_way_to_ours() -> None:
     english, _local, source, _ = _settle_summaries(
         engine_summary=engine, model_summary=ours, stored_local="", language="en-IN", facts=facts
     )
-    assert (english, source) == (ours, "extraction")
+    assert source == "extraction" and english.startswith(f"{ours} The call reached")
 
     alone, _local, source, _ = _settle_summaries(
         engine_summary=engine, model_summary="", stored_local="", language="en-IN", facts=facts
     )
     assert source == "engine"
-    assert alone == "The customer installed the app, logged in and added a farm."
+    assert alone.startswith("The customer installed the app, logged in and added a farm. ")
 
 
 # --- the extraction: evidence, and the prompt ----------------------------------------------

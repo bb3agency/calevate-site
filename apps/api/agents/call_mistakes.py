@@ -43,7 +43,7 @@ from calevate_shared.cut_off import likely_cut_off_rows
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import hot_facts, mistake_fixes, turn_checks
+from apps.api.agents import call_rules, hot_facts, mistake_fixes, turn_checks
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -234,6 +234,35 @@ def step_mistakes(progress: StepProgress | None, turns: Sequence[SpokenTurn]) ->
 
 
 # --- end of the step-outcome block -----------------------------------------------------------
+
+# --- The owner's own "Never" rules (W3.9) ------------------------------------------------
+# Read with the account's pinned facts, which the pipeline hands in: a rule naming a promise
+# the code can see ("Never promise a call-back time") against the agent's spoken lines
+# (`call_rules.owner_rules`, `breaks`). An in-call kind: the agent broke a rule it was given,
+# whatever its script says; the script half is refused at publish.
+LESSONS["owner_rule_broken"] = Lesson(
+    "Broke one of your rules",
+    "Keep to every rule you set, even when the caller asks for it.",
+    "QUICK FACTS: an owner's Never rule read as a fact",
+)
+
+
+def owner_rule_mistakes(
+    turns: Sequence[SpokenTurn], rules: Sequence[call_rules.OwnerRule]
+) -> dict[str, int]:
+    """`owner_rule_broken` on the first agent line that does what one of `rules` forbids."""
+    if not rules:
+        return {}
+    first = next(
+        (
+            t.idx
+            for t in sorted(turns, key=lambda t: t.idx)
+            if t.speaker == "agent" and call_rules.broken_rule(t.text, rules) is not None
+        ),
+        None,
+    )
+    return {} if first is None else {"owner_rule_broken": first}
+
 
 # --- Lookups when they were needed (founder, 24 Nov 2026) ----------------------------------
 # "Replies that looked up your information: 0 of 12" read as a failure on a step-by-step call

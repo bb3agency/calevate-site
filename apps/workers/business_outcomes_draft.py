@@ -32,6 +32,7 @@ from uuid import UUID
 
 from calevate_shared.business_frame import BUSINESS_KIND
 from calevate_shared.business_outcomes import (
+    CONDITION_MAX,
     LABEL_MAX,
     LEAD_MOVES,
     MAX_BUSINESS_OUTCOMES,
@@ -80,12 +81,18 @@ _SYSTEM_OUTCOMES: Final = (
 _FORMAT: Final = (
     "For each give: label (2 to 4 plain English words an owner understands, "
     f"at most {LABEL_MAX} characters), meaning (one sentence, at most {MEANING_MAX} "
-    "characters, saying what the caller said or did), and lead_status: "
+    "characters, saying what the caller said or did), counts_when (one short line, at most "
+    f"{CONDITION_MAX} characters: what the caller says or does that makes a call this "
+    f"outcome), not_when (one short line, at most {CONDITION_MAX} characters: the closest "
+    "case that is NOT this outcome, so two outcomes near each other are told apart; a "
+    "caller who wants time to think or asks to be called later has not said no), and "
+    "lead_status: "
 )
 _RULES: Final = (
     "Do not invent products or services the description does not mention. "
     "Name no company, brand or technology. "
-    'Return ONLY JSON: {"outcomes": [{"label": str, "meaning": str, "lead_status": str}]}.'
+    'Return ONLY JSON: {"outcomes": [{"label": str, "meaning": str, '
+    '"counts_when": str, "not_when": str, "lead_status": str}]}.'
 )
 
 
@@ -157,9 +164,11 @@ _DRAFT_SCHEMA: Final = {
                 "properties": {
                     "label": {"type": "string"},
                     "meaning": {"type": "string"},
+                    "counts_when": {"type": "string"},
+                    "not_when": {"type": "string"},
                     "lead_status": {"type": "string", "enum": list(LEAD_MOVES)},
                 },
-                "required": ["label", "meaning", "lead_status"],
+                "required": ["label", "meaning", "counts_when", "not_when", "lead_status"],
                 "additionalProperties": False,
             },
         }
@@ -187,6 +196,8 @@ def outcomes_from_model(raw: dict[str, Any]) -> list[BusinessOutcome]:
             continue
         label = _clip(str(item.get("label", "")), LABEL_MAX)
         meaning = _clip(str(item.get("meaning", "")), MEANING_MAX)
+        counts_when = _clip(str(item.get("counts_when") or ""), CONDITION_MAX)
+        not_when = _clip(str(item.get("not_when") or ""), CONDITION_MAX)
         move = str(item.get("lead_status", ""))
         if not label or label.casefold() in labels or move not in LEAD_MOVES:
             continue
@@ -197,7 +208,14 @@ def outcomes_from_model(raw: dict[str, Any]) -> list[BusinessOutcome]:
             continue
         try:
             outcome = BusinessOutcome.model_validate(
-                {"key": key, "label": label, "meaning": meaning, "lead_status": move}
+                {
+                    "key": key,
+                    "label": label,
+                    "meaning": meaning,
+                    "counts_when": counts_when,
+                    "not_when": not_when,
+                    "lead_status": move,
+                }
             )
         except ValidationError:
             continue

@@ -78,6 +78,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment, call_mistakes
 from apps.api.agents import call_outcomes as agent_outcomes
+from apps.api.agents.call_rules import owner_rules
 from apps.api.agents.field_suggestions import queue_on_repeat
 from apps.api.agents.lead_fields import business_type_label
 from apps.api.agents.llm_models import resolve_llm_model
@@ -197,6 +198,7 @@ from apps.api.reliability.service import (
     mark_inbox_failed,
     mark_inbox_processed,
 )
+from apps.api.teach.pinned import list_pinned, pairs_of
 from apps.api.team_alerts import service as team_alerts
 from apps.api.tenancy.business_copy import capabilities_for
 from apps.api.tenancy.business_profile import BUSINESS_LANGUAGE_SQL
@@ -1547,8 +1549,11 @@ async def _owner_insights_stage(
                         turns=snapshot.transcript,
                         unheard=likely_cut_off(snapshot.transcript),
                     )
+                    rules = owner_rules(pairs_of(await list_pinned(session)))
                 found.update(call_mistakes.step_mistakes(progress, snapshot.transcript))
                 found.update(call_mistakes.lookup_mistakes(lookups))
+                # The owner's "Never" rules among the pinned facts (W3.9).
+                found.update(call_mistakes.owner_rule_mistakes(snapshot.transcript, rules))
                 await call_mistakes.record_call_mistakes(
                     tenant_id=tenant_id,
                     agent_id=agent_id,
@@ -3194,13 +3199,14 @@ def _settle_summaries(
     did not reach (`facts`, `workers/step_truth`; 25 Nov 2026: "recorded an expense" on a
     call that ended as the agent asked for one): ours, settled against the steps before it
     got here, takes the engine's place; whatever English is kept has the false clause taken
-    out.
+    out and ends with where the call got to, built from the steps
+    (`step_truth.with_where_it_got_to`).
     """
     english, local, source = "", stored_local, None
     romanised: tuple[str, str] | None = None
 
     def overstates(summary: str) -> bool:
-        return facts is not None and step_truth.claims_unreached(summary, facts)
+        return facts is not None and step_truth.overstates(summary, facts)
 
     neutral_model = (
         bool(model_summary)
@@ -3228,10 +3234,16 @@ def _settle_summaries(
     cleaned = without_feelings(english, said=caller_said)
     if facts is not None:
         cleaned = step_truth.without_unreached(cleaned, facts)
-    if cleaned != english:
-        english = cleaned
-        if local and local == engine_summary:
-            local = stored_local if stored_local != engine_summary else ""
+    # An engine summary in the call's language is one no check of ours reads, so on a call
+    # that stopped short it is written again from the checked English, whose code-built
+    # clause says where it stopped.
+    stopped_short = facts is not None and facts.incomplete
+    if (cleaned != english or (stopped_short and english)) and local and local == engine_summary:
+        local = stored_local if stored_local != engine_summary else ""
+    english = cleaned
+    if facts is not None:
+        # Two parts (W3.5): the prose, then where the call got to, from the step reading.
+        english = step_truth.with_where_it_got_to(english, facts)
     if call_language.is_english(language):
         # An English call has nothing to translate into; the words are the only summary.
         if not english and romanised is not None:
