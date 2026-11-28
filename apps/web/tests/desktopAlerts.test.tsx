@@ -102,9 +102,15 @@ describe("desktop alerts", () => {
   it("leaves out a row whose Computer cell the person switched off (D-1048)", async () => {
     permission = "granted";
     await turnOnDesktopAlerts("acme");
-    const prefs = {
+    const prefs: AlertPreferences = {
+      account_editable: false,
+      daily_cap: 0,
+      governs_account: false,
       kinds: [{ key: "hot_lead", label: "", always: false, why: null, cells: { computer: "off" } }],
-    } as unknown as AlertPreferences;
+      quiet_enabled: false,
+      quiet_end_hour: 0,
+      quiet_start_hour: 0,
+    };
     const allows = (kind: AttentionKind) => computerAllows(prefs, kind);
     const { rerender } = renderHook(({ q }) => useDesktopAlerts("acme", q, (p) => p, allows), {
       initialProps: { q: queue(["a"]) },

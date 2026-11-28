@@ -30,7 +30,7 @@ export const PRESETS: readonly Preset[] = [
   {
     id: "campaigns",
     label: "Run campaigns",
-    hint: "Place calls, plus adding people to campaigns and starting or stopping them.",
+    hint: "Place calls, add people to campaigns, start or stop them.",
     scopes: [...READ, "leads:write", "leads:dispatch", "wallet:read"],
   },
   {
@@ -42,7 +42,7 @@ export const PRESETS: readonly Preset[] = [
   {
     id: "events",
     label: "Send events to my server",
-    hint: "Read the events feed, and add or remove the addresses events are sent to.",
+    hint: "Read the events feed and choose where events are sent.",
     scopes: ["org:read", "org:manage"],
   },
 ];

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
 import {
   FIELD,
@@ -102,11 +102,19 @@ function useLogControls(canResend: boolean) {
   );
   const test = useSendTestDelivery(session);
   const resume = useResumeEndpoint(session);
-  const all = endpoints.data ?? [];
+  // Both outcomes are said in place (the ProblemNotice and the status line below the
+  // control), so the toast stack stays quiet.
+  const testFeedback = useActionFeedback(test, { errorDisplay: "inline" });
+  const resumeFeedback = useActionFeedback(resume, { errorDisplay: "inline" });
+  // Undefined until the destinations arrive: a failed or parked read is never a list with
+  // no destinations in it.
+  const all = endpoints.data;
+  const endpointsRead = endpoints.isLoading ? "loading" : endpoints.error || !all ? "failed" : "ready";
   return {
+    endpointsRead,
     all,
-    paused: canResend ? all.filter((e) => e.active && e.paused_at) : [],
-    chosen: all.find((e) => e.id === endpointId),
+    paused: canResend && all ? all.filter((e) => e.active && e.paused_at) : [],
+    chosen: all?.find((e) => e.id === endpointId),
     endpointId,
     setEndpointId,
     status,
@@ -116,7 +124,9 @@ function useLogControls(canResend: boolean) {
     filtered,
     narrowed,
     test,
+    testFeedback,
     resume,
+    resumeFeedback,
   };
 }
 
@@ -169,12 +179,11 @@ export function DeliveryLog({
           <ActionButton
             variant="secondary-sm"
             className="ml-auto"
-            status={
-              controls.resume.isPending && controls.resume.variables === endpoint.id ? "pending" : "idle"
-            }
+            status={controls.resume.variables === endpoint.id ? controls.resumeFeedback.status : "idle"}
+            retryable={controls.resumeFeedback.retryable}
             pendingLabel="Resuming…"
             disabled={controls.resume.isPending && controls.resume.variables !== endpoint.id}
-            onClick={() => controls.resume.mutate(endpoint.id)}
+            onClick={() => controls.resumeFeedback.run(endpoint.id)}
           >
             Resume
           </ActionButton>
@@ -189,22 +198,32 @@ export function DeliveryLog({
       )}
 
       <div className="mb-3 flex flex-wrap items-end gap-2">
-        <label className="min-w-40 flex-1">
-          <span className={FIELD_LABEL}>Destination</span>
-          <select
-            className={FIELD}
-            value={controls.endpointId}
-            onChange={(e) => controls.setEndpointId(e.target.value)}
-          >
-            <option value={ANY}>All</option>
-            {controls.all.map((endpoint) => (
-              <option key={endpoint.id} value={endpoint.id}>
-                {destinationName(endpoint)}
-                {endpoint.active ? "" : " (off)"}
-              </option>
-            ))}
-          </select>
-        </label>
+        {/* The destinations card above refuses a failed read with its retry; here the
+            filter only steps aside, so the refusal is said once. */}
+        {controls.endpointsRead === "ready" ? (
+          <label className="min-w-40 flex-1">
+            <span className={FIELD_LABEL}>Destination</span>
+            <select
+              className={FIELD}
+              value={controls.endpointId}
+              onChange={(e) => controls.setEndpointId(e.target.value)}
+            >
+              <option value={ANY}>All</option>
+              {controls.all?.map((endpoint) => (
+                <option key={endpoint.id} value={endpoint.id}>
+                  {destinationName(endpoint)}
+                  {endpoint.active ? "" : " (off)"}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : controls.endpointsRead === "loading" ? (
+          <div className="min-w-40 flex-1">
+            <Skeleton rows={1} label="Loading your destinations…" />
+          </div>
+        ) : (
+          <p className="min-w-40 flex-1 text-meta text-ink-muted">Your destinations did not load.</p>
+        )}
         <label className="min-w-32 flex-1">
           <span className={FIELD_LABEL}>Result</span>
           <select
@@ -244,10 +263,11 @@ export function DeliveryLog({
         {canResend && controls.chosen?.kind === "webhook" && controls.chosen.active && (
           <ActionButton
             variant="secondary-sm"
-            status={controls.test.isPending ? "pending" : "idle"}
+            status={controls.testFeedback.status}
+            retryable={controls.testFeedback.retryable}
             pendingLabel="Sending…"
             title="Sends one signed delivery with made-up data."
-            onClick={() => controls.chosen && controls.test.mutate(controls.chosen.id)}
+            onClick={() => controls.chosen && controls.testFeedback.run(controls.chosen.id)}
           >
             Send a test
           </ActionButton>

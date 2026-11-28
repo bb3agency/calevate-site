@@ -9,6 +9,8 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
+import { lookup } from "@/lib/lookup";
+
 import { apiRequest, type Session } from "./client";
 import { notificationKeys } from "./notifications";
 import type { components } from "./schema";
@@ -80,7 +82,7 @@ const ATTENTION_ROW: Record<string, string> = {
 };
 
 export function computerAllows(prefs: AlertPreferences | undefined, attentionKind: string): boolean {
-  const row = ATTENTION_ROW[attentionKind];
+  const row = lookup(ATTENTION_ROW, attentionKind);
   if (!prefs || !row) return true;
   return prefs.kinds.find((kind) => kind.key === row)?.cells.computer !== "off";
 }

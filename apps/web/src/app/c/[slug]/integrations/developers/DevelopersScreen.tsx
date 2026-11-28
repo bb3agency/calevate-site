@@ -18,6 +18,7 @@ import {
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
+  Skeleton,
   formatIST,
   type NoticeTone,
 } from "@/components/ui";
@@ -67,13 +68,15 @@ export function DevelopersScreen() {
   const [keyFilter, setKeyFilter] = useState<string | null>(null);
   const [failedOnly, setFailedOnly] = useState(false);
   const activity = useApiActivity(session, keyFilter, failedOnly);
-  const list = keys.data?.keys ?? [];
-  const names = new Map(list.map((k) => [k.id, k.name]));
+  // Undefined until the keys arrive: a failed or parked read is refused below, never shown
+  // as "No keys yet".
+  const list = keys.data?.keys;
+  const names = new Map(list?.map((k) => [k.id, k.name]));
 
   return (
     <div className="max-w-4xl space-y-10 pb-12">
       <PageHeader
-        description="Let your own systems place calls, read results and keep your do-not-call list."
+        description="Place calls, read results and keep your do-not-call list."
         back={{ href: `/c/${session.orgSlug}/integrations`, label: "Integrations" }}
       />
       <RestrictionNote reason={write.reason} />
@@ -99,71 +102,78 @@ export function DevelopersScreen() {
           </button>
         }
       >
-        {keys.error && <ProblemNotice error={keys.error} onRetry={() => void keys.refetch()} />}
         {revoke.error && !stopping && <ProblemNotice error={revoke.error} />}
         {renew.error && <ProblemNotice error={renew.error} />}
-        {!keys.isLoading && !keys.error && list.length === 0 && (
+        {keys.isLoading ? (
+          <Skeleton rows={3} label="Loading your keys…" />
+        ) : keys.error || !list ? (
+          <ProblemNotice
+            error={keys.error ?? new Error("Your API keys could not be loaded.")}
+            onRetry={() => void keys.refetch()}
+          />
+        ) : list.length === 0 ? (
           <p className="text-body text-ink-muted">No keys yet.</p>
-        )}
-        <ul className="divide-y divide-line">
-          {list.map((key) => (
-            <li key={key.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-start">
-              <div className="min-w-0 flex-1 space-y-1">
-                <p className="flex flex-wrap items-center gap-2 text-body font-medium text-ink">
-                  <span className="break-all">{key.name}</span>
-                  <StatusPill tone={lookup(STATE, key.state)?.tone ?? "neutral"}>
-                    {lookup(STATE, key.state)?.label ?? key.state}
-                  </StatusPill>
-                </p>
-                <p className="text-meta text-ink-muted">
-                  <span className="font-mono">{key.display_prefix}…</span> ·{" "}
-                  {key.scopes.map((s) => lookup(SCOPE_WORDS, s) ?? s).join(", ")}
-                </p>
-                <p className="text-meta text-ink-faint">
-                  {key.state === "revoked" && key.revoked_at
-                    ? `Revoked ${formatIST(key.revoked_at)}`
-                    : `Expires ${formatIST(key.expires_at)}`}
-                  {key.last_used_at ? ` · Last used ${formatIST(key.last_used_at)}` : " · Not used yet"}
-                </p>
-                {key.health.requests_24h > 0 && (
-                  <p className="text-meta text-ink-faint">
-                    {`Last 24 hours: ${key.health.requests_24h} requests, ${key.health.failed_24h} refused`}
-                    {key.health.last_rate_limited_at
-                      ? ` · Slowed down ${formatIST(key.health.last_rate_limited_at)}`
-                      : ""}
+        ) : (
+          <ul className="divide-y divide-line">
+            {list.map((key) => (
+              <li key={key.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-start">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <p className="flex flex-wrap items-center gap-2 text-body font-medium text-ink">
+                    <span className="break-all">{key.name}</span>
+                    <StatusPill tone={lookup(STATE, key.state)?.tone ?? "neutral"}>
+                      {lookup(STATE, key.state)?.label ?? key.state}
+                    </StatusPill>
                   </p>
-                )}
-              </div>
-              {(key.state === "active" || key.state === "expiring") && (
-                <div className="flex shrink-0 gap-2">
-                  <ActionButton
-                    variant="secondary-sm"
-                    status={renew.isPending && renew.variables === key.id ? "pending" : undefined}
-                    pendingLabel="Renewing…"
-                    disabled={!write.allowed}
-                    onClick={() => renew.mutate(key.id)}
-                  >
-                    Renew
-                  </ActionButton>
-                  <button
-                    type="button"
-                    className={SECONDARY_BUTTON_SM}
-                    disabled={!write.allowed}
-                    onClick={() => setStopping(key)}
-                  >
-                    Revoke
-                  </button>
+                  <p className="text-meta text-ink-muted">
+                    <span className="font-mono">{key.display_prefix}…</span> ·{" "}
+                    {key.scopes.map((s) => lookup(SCOPE_WORDS, s) ?? s).join(", ")}
+                  </p>
+                  <p className="text-meta text-ink-faint">
+                    {key.state === "revoked" && key.revoked_at
+                      ? `Revoked ${formatIST(key.revoked_at)}`
+                      : `Expires ${formatIST(key.expires_at)}`}
+                    {key.last_used_at ? ` · Last used ${formatIST(key.last_used_at)}` : " · Not used yet"}
+                  </p>
+                  {key.health.requests_24h > 0 && (
+                    <p className="text-meta text-ink-faint">
+                      {`Last 24 hours: ${key.health.requests_24h} requests, ${key.health.failed_24h} refused`}
+                      {key.health.last_rate_limited_at
+                        ? ` · Slowed down ${formatIST(key.health.last_rate_limited_at)}`
+                        : ""}
+                    </p>
+                  )}
                 </div>
-              )}
-            </li>
-          ))}
-        </ul>
+                {(key.state === "active" || key.state === "expiring") && (
+                  <div className="flex shrink-0 gap-2">
+                    <ActionButton
+                      variant="secondary-sm"
+                      status={renew.isPending && renew.variables === key.id ? "pending" : undefined}
+                      pendingLabel="Renewing…"
+                      disabled={!write.allowed}
+                      onClick={() => renew.mutate(key.id)}
+                    >
+                      Renew
+                    </ActionButton>
+                    <button
+                      type="button"
+                      className={SECONDARY_BUTTON_SM}
+                      disabled={!write.allowed}
+                      onClick={() => setStopping(key)}
+                    >
+                      Revoke
+                    </button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </Section>
 
       <Section title="Recent requests" description="The last 100, newest first.">
         <div className="mb-3 flex flex-wrap gap-2">
           <FilterChip label="All keys" active={keyFilter === null} onClick={() => setKeyFilter(null)} />
-          {list.map((key) => (
+          {list?.map((key) => (
             <FilterChip
               key={key.id}
               label={key.name}
@@ -204,15 +214,25 @@ export function DevelopersScreen() {
         </ul>
       </Section>
 
-      <Section title="First request" description="Send the key as a bearer token.">
+      <Section
+        title="First request"
+        description="Send the key as a bearer token."
+        info={
+          <p>
+            The header means a retry never rings twice. Every answer says how many requests are
+            left this minute.
+          </p>
+        }
+      >
         <CopyRow
           label="Check a key works"
           value={`curl ${API_BASE}/api/v1/me -H "Authorization: Bearer YOUR_KEY"`}
           copyLabel="Copy the command"
         />
         <p className="mt-3 text-meta text-ink-muted">
-          Calls that ring a phone need an <span className="font-mono">Idempotency-Key</span> header, so a
-          retry never rings twice. Every answer says how many requests are left this minute.{" "}
+          Calls that ring a phone need an <span className="font-mono">Idempotency-Key</span> header.
+        </p>
+        <p className="mt-1 text-meta text-ink-muted">
           <Link href={`/c/${session.orgSlug}/integrations`} className="underline">
             Webhooks
           </Link>{" "}
@@ -244,9 +264,8 @@ export function DevelopersScreen() {
           <div className="space-y-3 text-body">
             <p className="font-medium text-ink">Copy it now. We keep no copy and cannot show it again.</p>
             <CopyRow label={made.key.name} value={made.secret} copyLabel="Copy the key" />
-            <p className="text-meta text-ink-muted">
-              Keep it on your server or in your automation tool. Never in a web page or an app.
-            </p>
+            <p className="text-meta text-ink-muted">Keep it on your server or in your automation tool.</p>
+            <p className="text-meta text-ink-muted">Never put it in a web page or an app.</p>
           </div>
         )}
       </Drawer>
@@ -266,7 +285,7 @@ export function DevelopersScreen() {
           }}
           onConfirm={() => revoke.mutate(stopping.id, { onSuccess: () => setStopping(null) })}
         >
-          <p>Its next request is refused. Anything using it stops working.</p>
+          <p>Its next request is refused. Anything using it stops.</p>
           <p>
             <strong className="font-semibold text-ink">This cannot be undone.</strong> Make a new key to
             replace it.
@@ -368,10 +387,17 @@ function MakeKeyDrawer({
           ))}
         </fieldset>
 
-        {(agents.data?.length ?? 0) > 1 && (
+        {agents.isLoading ? (
+          <Skeleton rows={1} label="Loading your agents…" />
+        ) : agents.error || !agents.data ? (
+          <ProblemNotice
+            error={agents.error ?? new Error("Your agents could not be loaded.")}
+            onRetry={() => void agents.refetch()}
+          />
+        ) : agents.data.length > 1 && (
           <fieldset className="space-y-2">
             <legend className={FIELD_LABEL}>Only these agents (optional)</legend>
-            {(agents.data ?? []).map((agent) => (
+            {agents.data.map((agent) => (
               <label key={agent.id} className="flex items-center gap-2 text-body">
                 <input
                   type="checkbox"
@@ -394,7 +420,7 @@ function MakeKeyDrawer({
             onChange={(e) => setAddresses(e.target.value)}
             placeholder="203.0.113.7, 198.51.100.0/24"
           />
-          <span className={FIELD_HINT}>Your server&apos;s address. Requests from anywhere else are refused.</span>
+          <span className={FIELD_HINT}>Your server&apos;s address. Requests from elsewhere are refused.</span>
         </label>
 
         <label className="block">

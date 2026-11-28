@@ -16,6 +16,7 @@ import {
   type SampleChannel,
 } from "@/lib/api/alertPreferences";
 import { useClientSession } from "@/lib/api/session";
+import { hourWords } from "@/lib/clock";
 import { leadWords, useAccountCapabilities } from "@/lib/businessCapabilities";
 
 /**
@@ -34,12 +35,6 @@ const CHANNELS = [
 const ACCOUNT_CHANNELS = new Set<string>(["email", "whatsapp"]);
 const CAPS = [5, 8, 12, 20, 30, 50, 100];
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
-
-function hourLabel(hour: number): string {
-  const suffix = hour < 12 ? "am" : "pm";
-  const twelve = hour % 12 === 0 ? 12 : hour % 12;
-  return `${twelve} ${suffix}`;
-}
 
 export function AlertTable() {
   const session = useClientSession();
@@ -263,7 +258,7 @@ function HourSelect({
       >
         {HOURS.map((h) => (
           <option key={h} value={h}>
-            {hourLabel(h)}
+            {hourWords(h)}
           </option>
         ))}
       </select>

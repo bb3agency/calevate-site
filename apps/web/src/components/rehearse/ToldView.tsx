@@ -1,6 +1,6 @@
 "use client";
 
-import { ProblemNotice, Skeleton } from "@/components/ui";
+import { ProblemNotice, ScrollRegion, Skeleton } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { useTold } from "@/lib/api/rehearse";
 import type { ScriptHolder } from "@/lib/api/scriptChecks";
@@ -20,9 +20,13 @@ export function ToldView({ session, holder, script }: { session: Session; holder
         Your script, as the agent reads it. Our own call rules are added around it and are not shown.
       </p>
       {told.data.told ? (
-        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-md border border-line bg-surface-muted p-3 font-sans text-sm text-ink [overflow-wrap:anywhere]">
-          {told.data.told}
-        </pre>
+        <ScrollRegion
+          label="What the agent is told"
+          edgeCue={false}
+          className="max-h-[60dvh] overflow-y-auto rounded-md border border-line bg-surface-muted p-3"
+        >
+          <pre className="whitespace-pre-wrap font-sans text-sm text-ink [overflow-wrap:anywhere]">{told.data.told}</pre>
+        </ScrollRegion>
       ) : (
         <p className="text-body text-ink-muted">There is no saved script yet.</p>
       )}

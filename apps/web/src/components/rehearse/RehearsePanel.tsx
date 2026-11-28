@@ -4,7 +4,7 @@ import { useId, useState } from "react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { TEXT_ACTION_SM } from "@/components/console/section";
-import { FIELD, ProblemNotice } from "@/components/ui";
+import { FIELD, NoticeBox, ProblemNotice } from "@/components/ui";
 import { useRehearse } from "@/lib/api/rehearse";
 import type { ScriptHolder } from "@/lib/api/scriptChecks";
 import type { Session } from "@/lib/api/client";
@@ -116,20 +116,25 @@ export function RehearsePanel({
               )}
               {turn.from === "agent" &&
                 turn.flags.map((flag) => (
-                  <div key={flag.kind} className="rounded-md border border-warn-line bg-warn-soft px-2.5 py-1.5 text-meta text-ink">
-                    <p>{flag.reason}</p>
-                    {flag.in_script && onFix && (
-                      <button
-                        type="button"
-                        className={`${TEXT_ACTION_SM} mt-1`}
-                        disabled={!canWrite}
-                        title={refusal}
-                        onClick={() => onFix(fixInstruction(flag, turn.said, turn.text))}
-                      >
-                        Fix this in the script
-                      </button>
-                    )}
-                  </div>
+                  <NoticeBox
+                    key={flag.kind}
+                    tone="warn"
+                    action={
+                      flag.in_script && onFix ? (
+                        <button
+                          type="button"
+                          className={TEXT_ACTION_SM}
+                          disabled={!canWrite}
+                          title={refusal}
+                          onClick={() => onFix(fixInstruction(flag, turn.said, turn.text))}
+                        >
+                          Fix this in the script
+                        </button>
+                      ) : undefined
+                    }
+                  >
+                    {flag.reason}
+                  </NoticeBox>
                 ))}
             </li>
           ))}
@@ -177,9 +182,9 @@ export function RehearsePanel({
       <div className="flex flex-wrap items-center justify-between gap-2">
         {rehearsal.note ? <p className="text-meta text-ink-faint">{rehearsal.note}</p> : <span />}
         {turns.length > 0 && (
-          <button
-            type="button"
-            className={TEXT_ACTION_SM}
+          <ActionButton
+            variant="text"
+            // Held, not pending: Send is the button that is working and carries the spinner.
             // The reply still on its way would land in the cleared chat, under the old session.
             disabled={sendFeedback.status === "pending"}
             onClick={() => {
@@ -188,7 +193,7 @@ export function RehearsePanel({
             }}
           >
             Start over
-          </button>
+          </ActionButton>
         )}
       </div>
     </div>

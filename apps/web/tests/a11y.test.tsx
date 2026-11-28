@@ -28,6 +28,7 @@ import { CALLER_QUESTION, FULL_ACCOUNT_IMPROVE, WEEKLY_SUMMARY } from "./fixture
 import { FULL_DIAGNOSIS, GIVE_TIME_ON } from "./fixtures/diagnosis";
 
 import type { AiQuota } from "@/lib/api/aiQuota";
+import type { CallOutcomes } from "@/lib/api/callOutcomes";
 import type {
   FollowUpListOut,
   FollowUpOut,
@@ -129,6 +130,8 @@ import AdminAssistantPage from "@/app/admin/assistant/page";
 import PhoneNumberPage from "@/app/c/[slug]/phone-number/page";
 import DoNotCallPage from "@/app/c/[slug]/do-not-call/page";
 import IntegrationsPage from "@/app/c/[slug]/integrations/page";
+import DevelopersPage from "@/app/c/[slug]/integrations/developers/page";
+import type { ApiActivity, ApiKeys } from "@/app/c/[slug]/integrations/developers/api";
 import LeadSourcesPage from "@/app/c/[slug]/lead-sources/page";
 import KnowledgePage from "@/app/c/[slug]/knowledge/page";
 import LeadDetailPage from "@/app/c/[slug]/leads/[leadId]/page";
@@ -3466,6 +3469,70 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
+    // One working key with a day's traffic and one refused request, so the key row's
+    // Renew and Revoke controls, the filter chips and the "What to do" disclosure are all
+    // in the sweep.
+    file: "c/[slug]/integrations/developers/page.tsx",
+    realm: "client",
+    element: () => <DevelopersPage />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/agents": [],
+      "/v1/api-keys": {
+        api_versions: ["2026-11-01"],
+        grantable_scopes: ["org:read", "calls:read", "leads:read"],
+        keys: [
+          {
+            id: "k1",
+            name: "Office CRM",
+            agent_ids: null,
+            api_version: "2026-11-01",
+            created_at: "2026-11-01T10:00:00Z",
+            display_prefix: "clv_live_ab12",
+            expires_at: "2027-01-30T10:00:00Z",
+            health: { requests_24h: 12, failed_24h: 1, last_rate_limited_at: null },
+            ip_cidrs: null,
+            last_used_at: "2026-11-27T09:00:00Z",
+            rate_per_minute: null,
+            revoked_at: null,
+            scopes: ["org:read", "calls:read", "leads:read"],
+            state: "active",
+          },
+        ],
+      } satisfies ApiKeys,
+      "/v1/api-keys/activity": {
+        requests: [
+          {
+            id: "r1",
+            api_key_id: "k1",
+            created_at: "2026-11-27T09:00:00Z",
+            latency_ms: 42,
+            method: "GET",
+            route: "/api/v1/calls",
+            status: 200,
+            problem_code: null,
+            remediation: null,
+            replayed: false,
+            trace_id: null,
+          },
+          {
+            id: "r2",
+            api_key_id: "k1",
+            created_at: "2026-11-27T08:00:00Z",
+            latency_ms: 18,
+            method: "POST",
+            route: "/api/v1/calls",
+            status: 422,
+            problem_code: "idempotency_key_missing",
+            remediation: "Send an Idempotency-Key header with the request.",
+            replayed: false,
+            trace_id: "t-123",
+          },
+        ],
+      } satisfies { requests: ApiActivity[] },
+    },
+  },
+  {
     // The owner's view on purpose: `calls:read_raw` is what renders the delivery log's
     // fifth column and its "View" control, so a sweep without it would miss the half of
     // the table that has any controls in it at all.
@@ -4030,11 +4097,18 @@ const CLIENT_SCREENS: Screen[] = [
             starting: false,
             draft: "done",
             outcomes: [
-              { key: "wants_to_buy", label: "Wants to buy", meaning: "The caller wants to order.", lead_status: "interested" },
+              {
+                key: "wants_to_buy",
+                label: "Wants to buy",
+                meaning: "The caller wants to order.",
+                counts_when: "The caller names a product and a quantity.",
+                not_when: "",
+                lead_status: "interested",
+              },
             ],
           },
         ],
-      },
+      } satisfies CallOutcomes,
     },
   },
   {

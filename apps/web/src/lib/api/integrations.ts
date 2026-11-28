@@ -189,7 +189,7 @@ export function useDeliveries(
   const search = query.toString();
   return useQuery({
     // The unfiltered list keeps its key, so every invalidation of "deliveries" reaches both.
-    queryKey: search ? ["deliveries", session.orgSlug, search] : ["deliveries", session.orgSlug],
+    queryKey: ["deliveries", session.orgSlug, ...(search ? [search] : [])],
     queryFn: () =>
       apiRequest<Delivery[]>(session, `/v1/integrations/deliveries${search ? `?${search}` : ""}`),
     // Deliveries move on the outbox's schedule (seconds), and this screen is usually

@@ -475,6 +475,11 @@ export const STATIC_FAMILIES: Record<string, string> = {
   "voice-preview": "a rendered audio sample; it is fetched once when asked for",
   "first-words":
     "what a work says first; its key carries the work's current opening, so a new script is read again",
+  "script-told":
+    "what the agent is told for a script, read when the view opens; its key carries the saved script, so a new script is read again",
+  // `notification_preferences` is in the server's QUIET_TABLES: only its owner writes it,
+  // and the save puts the answer straight into this cache.
+  "alert-preferences": "one person's own alert choices; their save writes the answer into the cache",
   signup: "whether a web address is free, asked before the asker has an account to stream to",
   "integration-options": "the fixed list of services an account can connect",
   "api-keys":

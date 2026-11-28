@@ -13,7 +13,7 @@ import { ToastProvider } from "@/components/arc/toast";
 import { ARCHIVED_QUERY, type Agent, type AgentStats } from "@/lib/api/agents";
 import type { Lanes } from "@/lib/api/publishing";
 
-import { problem, renderClientPage } from "./harness";
+import { problem, renderClientPage, stillLoading } from "./harness";
 import { NO_ACCOUNT_READINESS, ROSTER_READINESS_PATH } from "./fixtures/sharedReads";
 
 /**
@@ -685,10 +685,14 @@ describe("the activity figures come from the server or are absent", () => {
   it("says nothing at all rather than '0 calls' while the figures have not arrived", async () => {
     // The stats route answers for a DIFFERENT agent, so this agent has no row — the same
     // shape as a request still in flight. "This agent has taken 0 calls" is a claim about
-    // a client's business, and a missing answer is not evidence for it.
+    // a client's business, and a missing answer is not evidence for it. Today's read is
+    // held in flight too: once it answers, "Today: 0 calls" is the server's own word.
     const { container } = await renderClientPage(
       page,
-      routes({ "/v1/agents/stats": [stats({ agent_id: "someone-else" })] }),
+      routes({
+        "/v1/agents/stats": [stats({ agent_id: "someone-else" })],
+        "/v1/analytics/agents-today": stillLoading(),
+      }),
     );
 
     await screen.findByText("Reception");
