@@ -8,6 +8,7 @@ exhaustive. TENANT_TABLES drives RLS policy creation and the coverage check.
 from apps.api.actions import models as actions_models
 from apps.api.agents import models as agents_models
 from apps.api.announcements import models as announcements_models
+from apps.api.api_keys import models as api_keys_models
 from apps.api.authn import models as authn_models
 from apps.api.billing import models as billing_models
 from apps.api.billing import payment_models as billing_payment_models
@@ -35,6 +36,7 @@ from apps.api.kb import models as kb_models
 from apps.api.legal import models as legal_models
 from apps.api.notifications import models as notifications_models
 from apps.api.ops import models as ops_models
+from apps.api.public_api import models as public_api_models
 from apps.api.quality import models as quality_models
 from apps.api.reliability import models as reliability_models
 from apps.api.retrieval import models as retrieval_models
@@ -50,6 +52,7 @@ __all__ = [
     "actions_models",
     "agents_models",
     "announcements_models",
+    "api_keys_models",
     "authn_models",
     "billing_models",
     "billing_payment_models",
@@ -76,6 +79,7 @@ __all__ = [
     "legal_models",
     "notifications_models",
     "ops_models",
+    "public_api_models",
     "quality_models",
     "reliability_models",
     "retrieval_models",
@@ -483,6 +487,13 @@ TENANT_TABLES = [
     # DELETEd whole by tenant erasure with the account's objects, and the bucket's 30-day
     # lifecycle rule is the backstop. NOT append-only.
     "copilot_uploads",
+    # Tenant API keys (migration b1e7c4a9d2f3, D-1047): a digest of the secret, its scopes
+    # and bindings. NOT append-only: `last_used_at` moves and a key is revoked in place.
+    # The policy also admits a READ of the one row whose digest `app.api_key_sha256` names.
+    "api_keys",
+    # The API activity log (same migration, W2.8): route templates, statuses and problem
+    # codes, never a path, query or body. NOT append-only: kept 30 days, then deleted.
+    "api_requests",
     # An account owner turning Pip on (migration b4d7e2a9c815, D-788): who accepted which
     # disclosure version, when, over which text. Append-only — see APPEND_ONLY_TABLES.
     "copilot_consents",

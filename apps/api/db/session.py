@@ -717,6 +717,25 @@ async def ingest_config_session(webhook_id: UUID) -> AsyncIterator[AsyncSession]
 
 
 @asynccontextmanager
+async def api_key_session(secret_sha256: str) -> AsyncIterator[AsyncSession]:
+    """Read-only view of ONE API key: the row whose secret digest the caller holds (D-1047).
+
+    `invite_session`'s doctrine: a bearer key names its tenant only through its row, so the
+    row must be readable before a tenant is known, and `app.api_key_sha256` widens READ by
+    exactly the row whose digest matches. Naming the value means holding a 190-bit secret,
+    so it grants nothing the caller did not already hold. Every write (`last_used_at`,
+    revocation) happens under the owning tenant's `tenant_session`.
+    """
+    maker = get_sessionmaker()
+    async with maker() as session, session.begin():
+        await session.execute(
+            text(f"SELECT set_config('app.api_key_sha256', :digest, true), {_TIMEOUT_SQL}"),
+            {"digest": secret_sha256, **_timeout_param()},
+        )
+        yield session
+
+
+@asynccontextmanager
 async def whatsapp_waba_session(waba_id: str) -> AsyncIterator[AsyncSession]:
     """Read-only view of the ONE `whatsapp_accounts` row for a WABA a Meta webhook names.
 

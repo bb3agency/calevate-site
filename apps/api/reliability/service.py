@@ -36,6 +36,7 @@ from apps.api.core.alerting import (
     record_outbox_dlq_depth,
     record_outbox_lag,
 )
+from apps.api.core.context import note_request_fact
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger, redact_exception, redact_text
 from apps.api.core.redis import get_redis
@@ -331,6 +332,9 @@ async def claim_idempotency(
             raise _in_flight()
         return IdempotencyClaim(state="fresh", record_id=found_id, nonce=nonce)
 
+    # The public surface answers a replay with `Idempotent-Replayed: true` and records it
+    # in the API activity log (`public_api/middleware.py`).
+    note_request_fact("idempotent_replayed", True)
     return IdempotencyClaim(
         state="replay",
         record_id=found_id,

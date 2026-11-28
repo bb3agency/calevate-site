@@ -407,6 +407,8 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# in tests/raw_sql_guard_test.py.
 	uv run python -m scripts.check_raw_sql
 	uv run python -m scripts.check_openapi_fresh
+	# The public API changes only by addition within a version (D-1047, WEBHOOKS.md §0).
+	uv run python -m scripts.check_public_api_snapshot
 	# The other half of the RBAC boot assertion, which SKIPS everything under a public
 	# path prefix — default-OPEN for whatever lands there next, and `/v1/auth/` is about
 	# to hold the whole first-party auth module. The exempt set is enumerated instead,

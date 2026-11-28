@@ -244,7 +244,47 @@ _HOLDER_DIAGNOSIS = BoundedByConstruction(
 )
 
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
+#: One API key (D-1047): its lists are its scopes, agents and address ranges, each capped by
+#: a CHECK on `api_keys` and `max_length` on `ApiKeyOut` (`api_keys/models.MAX_AGENTS`,
+#: `MAX_CIDRS`, `service.GRANTABLE_SCOPES`).
+_API_KEY = BoundedByConstruction(
+    by=(
+        "one key: scopes at most len(GRANTABLE_SCOPES), agents at most MAX_AGENTS, ranges at "
+        "most MAX_CIDRS, each a CHECK on api_keys and a max_length on ApiKeyOut."
+    )
+)
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
+    "POST /v1/api-keys/{key_id}/revoke": _API_KEY,
+    "POST /v1/api-keys/{key_id}/renew": _API_KEY,
+    "POST /v1/api-keys": _API_KEY,
+    "GET /api/v1/me": _API_KEY,
+    "GET /v1/api-keys": BoundedByConstruction(
+        by=(
+            "at most `api_keys/service.LIST_LIMIT` (100) keys, LIMITed in `list_keys`, each "
+            "bounded as `_API_KEY`; the two vocabularies are code constants."
+        )
+    ),
+    "GET /api/v1/agents/{agent_id}": BoundedByConstruction(
+        by=(
+            "one agent's capture fields: one extraction schema version, whose field list "
+            "the schema editor caps, plus the fixed core fields."
+        )
+    ),
+    "GET /api/v1/calls/{call_id}": BoundedByConstruction(
+        by="one call's transcript, LIMIT 2000 in the query and max_length=2000 on the model."
+    ),
+    "GET /api/v1/leads/{lead_id}": BoundedByConstruction(
+        by=(
+            "one lead's captured fields, max_length=200 on the model; `captured_fields` "
+            "reads at most 200 schema versions."
+        )
+    ),
+    "GET /api/v1/campaigns/{campaign_id}/launch-check": BoundedByConstruction(
+        by=(
+            "one campaign's launch blockers: one per rule `campaigns/service.launch_blockers` "
+            "knows, max_length=100 on the model."
+        )
+    ),
     "GET /v1/agents/{agent_id}/call-mistakes": _CALL_MISTAKES,
     "GET /v1/ops/call-mistakes": _CALL_MISTAKES,
     "POST /v1/follow-ups": _FOLLOW_UP,

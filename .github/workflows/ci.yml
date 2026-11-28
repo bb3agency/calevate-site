@@ -473,6 +473,12 @@ jobs:
         if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_openapi_fresh
 
+      - name: "Guardrail: the public API changes only by addition (D-1047)"
+        if: ${{ !cancelled() }}
+        # Within a `Calevate-Version` an integration's fields never go away or change
+        # type (docs/WEBHOOKS.md §0); a breaking change needs a new dated version.
+        run: uv run python -m scripts.check_public_api_snapshot
+
       - name: "Guardrail: the unauthenticated surface is enumerated (D-173)"
         if: ${{ !cancelled() }}
         # `assert_policy_registry_complete` skips everything under a PUBLIC_PREFIXES

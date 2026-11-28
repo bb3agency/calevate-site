@@ -314,7 +314,8 @@ DATA_CATEGORIES = (
     "caller_memory",
 )
 RETENTION_ACTIONS = ("delete", "anonymize")
-ACTOR_TYPES = ("admin", "user", "system")
+#: `api_key`: a tenant API key acting on the public surface (D-1047).
+ACTOR_TYPES = ("admin", "user", "system", "api_key")
 
 
 class ConsentLedgerEntry(PKMixin, Base):

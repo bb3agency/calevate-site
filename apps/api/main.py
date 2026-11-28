@@ -26,6 +26,7 @@ from apps.api.live.capture import LIVE_DRAIN_S, drain_in_flight, install_change_
 from apps.api.live.hub import end_live_streams, stop_hub
 from apps.api.ops.fx_rates import start_fx_refresher, stop_fx_refresher
 from apps.api.ops.pricing_snapshot import start_pricing_refresher, stop_pricing_refresher
+from apps.api.public_api.middleware import PublicApiMiddleware
 
 
 async def _startup() -> AsyncIterator[None]:
@@ -109,6 +110,9 @@ async def _startup() -> AsyncIterator[None]:
 
 app: FastAPI = create_app(service="api", title="Calevate API", version="0.1.0", on_startup=_startup)
 install_error_handlers(app)
+# Outermost, so every `/api/v1/` answer leaves with its version, limits and activity
+# entry, the problem documents the inner layers write included (`public_api/middleware.py`).
+app.add_middleware(PublicApiMiddleware)
 
 
 def _mount_routers(application: FastAPI) -> None:
@@ -158,6 +162,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.analytics.routes import router as analytics_router
     from apps.api.announcements.routes import admin_router as announcements_admin_router
     from apps.api.announcements.routes import router as announcements_router
+    from apps.api.api_keys.routes import router as api_keys_router
     from apps.api.authn.mobile_number_routes import router as mobile_number_router
     from apps.api.authn.routes import (
         admin_auth_router,
@@ -283,6 +288,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.spoken_style_routes import router as ops_spoken_style_router
     from apps.api.ops.trial_number import router as ops_trial_number_router
     from apps.api.ops.voice_comparison_routes import router as ops_voice_comparison_router
+    from apps.api.public_api.routes import router as public_api_router
     from apps.api.quality.routes import router as quality_router
     from apps.api.quality.sampling_routes import router as qa_sampling_router
     from apps.api.security.routes import router as csp_report_router
@@ -721,6 +727,8 @@ def _mount_routers(application: FastAPI) -> None:
     # `core.loadshed.ALWAYS_ALLOWED_PREFIXES`: telemetry about a refused subresource is the
     # first thing that should be dropped under load, not the last.
     application.include_router(csp_report_router)
+    application.include_router(api_keys_router)
+    application.include_router(public_api_router)
 
 
 _mount_routers(app)

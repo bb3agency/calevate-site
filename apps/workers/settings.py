@@ -125,6 +125,16 @@ from apps.workers.agent_test_conversations import (
     run_agent_test_conversations,
 )
 from apps.workers.alerts import sweep_alert_clears
+from apps.workers.api_requests import (
+    FLUSH_SECOND as API_REQUESTS_FLUSH_SECOND,
+)
+from apps.workers.api_requests import (
+    SWEEP_HOUR as API_REQUESTS_SWEEP_HOUR,
+)
+from apps.workers.api_requests import (
+    SWEEP_MINUTE as API_REQUESTS_SWEEP_MINUTE,
+)
+from apps.workers.api_requests import flush_api_requests, sweep_api_requests
 from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import FEE_SWEEP_MINUTE, issue_platform_fees
 from apps.workers.business_copy import (
@@ -1748,6 +1758,24 @@ CRON_JOBS = [
     # OWNER-ID FILES PAST THEIR 30-DAY HOLD (D-692). A person's ID image held after its
     # stated life is a broken promise, so `max_tries` is explicit for its neighbours'
     # reason and the job alerts on give-up.
+    # The API activity log (W2.8, D-1047): the request stream into `api_requests` every
+    # minute, and the 30-day retention once a night. Retrying either is safe: the flush is
+    # idempotent on the stream id and the sweep deletes by age.
+    _cron(
+        traced_job(flush_api_requests),
+        walk=bounded(
+            "at most FLUSH_BATCHES stream reads, one tenant_session per account in each batch"
+        ),
+        second=set(API_REQUESTS_FLUSH_SECOND),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    _cron(
+        traced_job(sweep_api_requests),
+        walk=fleet_wide("one admin read of the directory, then one tenant_session per account"),
+        hour=set(API_REQUESTS_SWEEP_HOUR),
+        minute=set(API_REQUESTS_SWEEP_MINUTE),
+        max_tries=WORKER_MAX_TRIES,
+    ),
     _cron(
         traced_job(sweep_abandoned_owner_ids),
         walk=bounded(

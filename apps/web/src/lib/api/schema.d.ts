@@ -4,6 +4,378 @@
  */
 
 export interface paths {
+    "/api/v1/agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Your agents, with what each one captures from a call */
+        get: operations["list_agents_api_v1_agents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/{agent_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One agent */
+        get: operations["get_agent_api_v1_agents__agent_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/balance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Prepaid balance in rupees, and today's API call budget */
+        get: operations["balance_api_v1_balance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Calls, newest first; test calls left out */
+        get: operations["list_calls_api_v1_calls_get"];
+        put?: never;
+        /**
+         * Call one person now or at a time: the same gate as every other call
+         * @description `Idempotency-Key` is required: the request rings a real phone, and a retry of the
+         *     same attempt is answered from its record rather than dialled again.
+         */
+        post: operations["place_call_api_v1_calls_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/calls/{call_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One call, with its masked transcript. `?wait=30` holds until it finishes
+         * @description Each look is its own short session, so a waiting request holds no connection.
+         */
+        get: operations["get_call_api_v1_calls__call_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Your campaigns, newest first */
+        get: operations["list_campaigns_api_v1_campaigns_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One campaign */
+        get: operations["get_campaign_api_v1_campaigns__campaign_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add people to a campaign's list: deduped, malformed numbers counted */
+        post: operations["add_campaign_contacts_api_v1_campaigns__campaign_id__contacts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/launch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start calling: the compliance gate, then the do-not-call scrub, then running */
+        post: operations["launch_campaign_api_v1_campaigns__campaign_id__launch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/launch-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether the campaign can start now, and every reason it cannot */
+        get: operations["campaign_launch_check_api_v1_campaigns__campaign_id__launch_check_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop dialling now. Safe to repeat */
+        post: operations["pause_campaign_api_v1_campaigns__campaign_id__pause_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dial again from where it stopped; every call is checked as it goes out */
+        post: operations["resume_campaign_api_v1_campaigns__campaign_id__resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop for good: nobody else on the list is called. Safe to repeat */
+        post: operations["stop_campaign_api_v1_campaigns__campaign_id__stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dnc": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Numbers no agent may call: your account's and the global ones */
+        get: operations["list_dnc_api_v1_dnc_get"];
+        put?: never;
+        /** Stop calling these numbers: in force before the next call goes out */
+        post: operations["add_dnc_api_v1_dnc_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dnc/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** May this number be called? (POST, so the number is never in a URL) */
+        post: operations["check_dnc_api_v1_dnc_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dnc/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Undo a number you added by hand; a person's own request cannot be undone */
+        delete: operations["remove_dnc_api_v1_dnc__entry_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inbound-calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Calls your agents answered, newest first */
+        get: operations["list_inbound_calls_api_v1_inbound_calls_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/leads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** People your agents have spoken to or will call, newest first */
+        get: operations["list_leads_api_v1_leads_get"];
+        put?: never;
+        /**
+         * Send a lead through one of your lead sources: mapped, consent-checked, called
+         * @description `leads:dispatch` because a lead source may call the person at once. The source's
+         *     own consent field decides whether it may; a missing answer keeps the lead and holds
+         *     the call, as on the source's webhook.
+         */
+        post: operations["create_lead_api_v1_leads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/leads/{lead_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One person, with every detail captured, each under its own type */
+        get: operations["get_lead_api_v1_leads__lead_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The account and the key this request was made with */
+        get: operations["me_api_v1_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/numbers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Your phone numbers and what answers or calls from each */
+        get: operations["list_numbers_api_v1_numbers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -5220,6 +5592,75 @@ export interface paths {
         put?: never;
         /** Put an announcement away for this account */
         post: operations["dismiss_announcement_v1_announcements__announcement_id__dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/api-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** This account's API keys, newest first, with each one's last 24 hours */
+        get: operations["list_keys_v1_api_keys_get"];
+        put?: never;
+        /** Make an API key. The key is in this answer once and never again */
+        post: operations["create_key_v1_api_keys_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/api-keys/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The last 100 API requests: route, status and what to do about a refusal */
+        get: operations["list_activity_v1_api_keys_activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/api-keys/{key_id}/renew": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Keep a working key for another 90 days */
+        post: operations["renew_key_v1_api_keys__key_id__renew_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/api-keys/{key_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop a key now. Its next request is refused */
+        post: operations["revoke_key_v1_api_keys__key_id__revoke_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -18054,6 +18495,105 @@ export interface components {
             /** Answers */
             answers?: components["schemas"]["AnswerIn"][];
         };
+        /** ApiActivityListOut */
+        ApiActivityListOut: {
+            /** Requests */
+            requests: components["schemas"]["ApiActivityOut"][];
+        };
+        /** ApiActivityOut */
+        ApiActivityOut: {
+            /**
+             * Api Key Id
+             * Format: uuid
+             */
+            api_key_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Latency Ms */
+            latency_ms: number;
+            /** Method */
+            method: string;
+            /** Problem Code */
+            problem_code: string | null;
+            /** Remediation */
+            remediation: string | null;
+            /** Replayed */
+            replayed: boolean;
+            /** Route */
+            route: string;
+            /** Status */
+            status: number;
+            /** Trace Id */
+            trace_id: string | null;
+        };
+        /** ApiKeyHealthOut */
+        ApiKeyHealthOut: {
+            /** Failed 24H */
+            failed_24h: number;
+            /** Last Rate Limited At */
+            last_rate_limited_at: string | null;
+            /** Requests 24H */
+            requests_24h: number;
+        };
+        /** ApiKeyOut */
+        ApiKeyOut: {
+            /** Agent Ids */
+            agent_ids: string[] | null;
+            /** Api Version */
+            api_version: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Display Prefix */
+            display_prefix: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            health: components["schemas"]["ApiKeyHealthOut"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Ip Cidrs */
+            ip_cidrs: string[] | null;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Name */
+            name: string;
+            /** Rate Per Minute */
+            rate_per_minute: number | null;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Scopes */
+            scopes: string[];
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "active" | "expiring" | "expired" | "revoked";
+        };
+        /** ApiKeysOut */
+        ApiKeysOut: {
+            /** Api Versions */
+            api_versions: string[];
+            /** Grantable Scopes */
+            grantable_scopes: string[];
+            /** Keys */
+            keys: components["schemas"]["ApiKeyOut"][];
+        };
         /** AppliedHoursOut */
         AppliedHoursOut: {
             /**
@@ -23762,6 +24302,21 @@ export interface components {
             /** Waiting */
             waiting: number;
         };
+        /** CreateApiKeyIn */
+        CreateApiKeyIn: {
+            /** Agent Ids */
+            agent_ids?: string[] | null;
+            /** Api Version */
+            api_version?: "2026-12-01" | null;
+            /** Ip Cidrs */
+            ip_cidrs?: string[] | null;
+            /** Name */
+            name: string;
+            /** Rate Per Minute */
+            rate_per_minute?: number | null;
+            /** Scopes */
+            scopes: string[];
+        };
         /** CreateCampaignIn */
         CreateCampaignIn: {
             /**
@@ -23939,6 +24494,12 @@ export interface components {
             spreadsheet: string;
             /** Worksheet */
             worksheet?: string | null;
+        };
+        /** CreatedApiKeyOut */
+        CreatedApiKeyOut: {
+            key: components["schemas"]["ApiKeyOut"];
+            /** Secret */
+            secret: string;
         };
         /** CredentialOut */
         CredentialOut: {
@@ -33842,6 +34403,769 @@ export interface components {
              */
             series: "140" | "160" | "standard";
         };
+        /** PublicAccountOut */
+        PublicAccountOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+            /** Status */
+            status: string;
+        };
+        /** PublicAddContactsIn */
+        PublicAddContactsIn: {
+            /** Contacts */
+            contacts: components["schemas"]["PublicContactIn"][];
+        };
+        /** PublicAddContactsOut */
+        PublicAddContactsOut: {
+            /** Added */
+            added: number;
+            /** Duplicate */
+            duplicate: number;
+            /** Foreign */
+            foreign: number;
+            /** Malformed */
+            malformed: number;
+            /**
+             * Object
+             * @default contacts_added
+             * @constant
+             */
+            object: "contacts_added";
+        };
+        /** PublicAgentList */
+        PublicAgentList: {
+            /** Api Version */
+            api_version: string;
+            /** Data */
+            data: components["schemas"]["PublicAgentOut"][];
+            /**
+             * Has More
+             * @default false
+             */
+            has_more: boolean;
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /**
+             * Object
+             * @default list
+             * @constant
+             */
+            object: "list";
+        };
+        /** PublicAgentOut */
+        PublicAgentOut: {
+            /** Capture Fields */
+            capture_fields: components["schemas"]["PublicCaptureFieldOut"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Direction */
+            direction: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Language */
+            language: string;
+            /** Name */
+            name: string;
+            /**
+             * Object
+             * @default agent
+             * @constant
+             */
+            object: "agent";
+            /** Published */
+            published: boolean;
+            /** Status */
+            status: string;
+        };
+        /** PublicBalanceOut */
+        PublicBalanceOut: {
+            /** Balance Inr */
+            balance_inr: string;
+            /** Calls Placed Today */
+            calls_placed_today: number;
+            /** Daily Call Budget */
+            daily_call_budget: number;
+            /**
+             * Object
+             * @default balance
+             * @constant
+             */
+            object: "balance";
+            /** On Trial */
+            on_trial: boolean;
+            /** Outbound Stopped */
+            outbound_stopped: boolean;
+            /** Prepaid */
+            prepaid: boolean;
+        };
+        /** PublicCallDetailOut */
+        PublicCallDetailOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Business Outcome */
+            business_outcome: string | null;
+            /** Business Outcome Label */
+            business_outcome_label: string | null;
+            /** Callback Requested */
+            callback_requested: boolean | null;
+            /** Campaign Id */
+            campaign_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Direction */
+            direction: string;
+            /** Duration S */
+            duration_s: number | null;
+            /** Ended At */
+            ended_at: string | null;
+            /** Finished */
+            finished: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Inbound Line Id */
+            inbound_line_id: string | null;
+            /** Lead Id */
+            lead_id: string | null;
+            /** Next Step */
+            next_step: string | null;
+            /** Not Placed Reason */
+            not_placed_reason: string | null;
+            /**
+             * Object
+             * @default call
+             * @constant
+             */
+            object: "call";
+            /** Outcome */
+            outcome: string | null;
+            /** Phone */
+            phone: string | null;
+            /** Started At */
+            started_at: string | null;
+            /** Status */
+            status: string;
+            /** Summary Redacted */
+            summary_redacted: string | null;
+            /** Transcript */
+            transcript: components["schemas"]["PublicTranscriptTurnOut"][];
+        };
+        /** PublicCallList */
+        PublicCallList: {
+            /** Api Version */
+            api_version: string;
+            /** Data */
+            data: components["schemas"]["PublicCallOut"][];
+            /**
+             * Has More
+             * @default false
+             */
+            has_more: boolean;
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /**
+             * Object
+             * @default list
+             * @constant
+             */
+            object: "list";
+        };
+        /** PublicCallOut */
+        PublicCallOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Business Outcome */
+            business_outcome: string | null;
+            /** Business Outcome Label */
+            business_outcome_label: string | null;
+            /** Callback Requested */
+            callback_requested: boolean | null;
+            /** Campaign Id */
+            campaign_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Direction */
+            direction: string;
+            /** Duration S */
+            duration_s: number | null;
+            /** Ended At */
+            ended_at: string | null;
+            /** Finished */
+            finished: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Inbound Line Id */
+            inbound_line_id: string | null;
+            /** Lead Id */
+            lead_id: string | null;
+            /** Next Step */
+            next_step: string | null;
+            /** Not Placed Reason */
+            not_placed_reason: string | null;
+            /**
+             * Object
+             * @default call
+             * @constant
+             */
+            object: "call";
+            /** Outcome */
+            outcome: string | null;
+            /** Phone */
+            phone: string | null;
+            /** Started At */
+            started_at: string | null;
+            /** Status */
+            status: string;
+            /** Summary Redacted */
+            summary_redacted: string | null;
+        };
+        /** PublicCampaignList */
+        PublicCampaignList: {
+            /** Api Version */
+            api_version: string;
+            /** Data */
+            data: components["schemas"]["PublicCampaignOut"][];
+            /**
+             * Has More
+             * @default false
+             */
+            has_more: boolean;
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /**
+             * Object
+             * @default list
+             * @constant
+             */
+            object: "list";
+        };
+        /** PublicCampaignOut */
+        PublicCampaignOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Launched At */
+            launched_at: string | null;
+            /** Name */
+            name: string;
+            /**
+             * Object
+             * @default campaign
+             * @constant
+             */
+            object: "campaign";
+            /** Status */
+            status: string;
+        };
+        /** PublicCampaignStateOut */
+        PublicCampaignStateOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Object
+             * @default campaign_state
+             * @constant
+             */
+            object: "campaign_state";
+            /** Status */
+            status: string;
+        };
+        /** PublicCaptureFieldOut */
+        PublicCaptureFieldOut: {
+            /** Choices */
+            choices?: string[] | null;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "text" | "number" | "bool" | "enum" | "date";
+        };
+        /** PublicContactIn */
+        PublicContactIn: {
+            /** Name */
+            name?: string | null;
+            /** Phone */
+            phone: string;
+            /** Variables */
+            variables?: {
+                [key: string]: string;
+            };
+        };
+        /**
+         * PublicCreateLeadIn
+         * @description A lead, as one of your lead sources would send it: `lead` is mapped and consent-
+         *     checked exactly as that source's own webhook is.
+         */
+        PublicCreateLeadIn: {
+            /** Lead */
+            lead: {
+                [key: string]: unknown;
+            };
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+        };
+        /** PublicCreateLeadOut */
+        PublicCreateLeadOut: {
+            /** Blocked Rule */
+            blocked_rule?: string | null;
+            /**
+             * Calling
+             * @default false
+             */
+            calling: boolean;
+            /** Lead Id */
+            lead_id?: string | null;
+            /**
+             * Object
+             * @default lead_intake
+             * @constant
+             */
+            object: "lead_intake";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "accepted" | "duplicate";
+        };
+        /** PublicDncAddIn */
+        PublicDncAddIn: {
+            /** Numbers */
+            numbers: string[];
+            /**
+             * Source
+             * @default manual
+             * @enum {string}
+             */
+            source: "customer_request" | "manual";
+        };
+        /** PublicDncAddOut */
+        PublicDncAddOut: {
+            /** Added */
+            added: number;
+            /** Already Suppressed */
+            already_suppressed: number;
+            /** Malformed */
+            malformed: number;
+            /**
+             * Object
+             * @default dnc_add
+             * @constant
+             */
+            object: "dnc_add";
+        };
+        /** PublicDncCheckIn */
+        PublicDncCheckIn: {
+            /** Phone */
+            phone: string;
+        };
+        /** PublicDncCheckOut */
+        PublicDncCheckOut: {
+            /**
+             * Object
+             * @default dnc_check
+             * @constant
+             */
+            object: "dnc_check";
+            /** Scope */
+            scope: string | null;
+            /** Suppressed */
+            suppressed: boolean;
+            /** Valid */
+            valid: boolean;
+        };
+        /** PublicDncEntryOut */
+        PublicDncEntryOut: {
+            /**
+             * Added At
+             * Format: date-time
+             */
+            added_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Object
+             * @default dnc_entry
+             * @constant
+             */
+            object: "dnc_entry";
+            /** Phone */
+            phone: string;
+            /** Removable */
+            removable: boolean;
+            /** Scope */
+            scope: string;
+            /** Source */
+            source: string | null;
+        };
+        /** PublicDncList */
+        PublicDncList: {
+            /** Api Version */
+            api_version: string;
+            /** Data */
+            data: components["schemas"]["PublicDncEntryOut"][];
+            /**
+             * Has More
+             * @default false
+             */
+            has_more: boolean;
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /**
+             * Object
+             * @default list
+             * @constant
+             */
+            object: "list";
+        };
+        /** PublicDncRemoveIn */
+        PublicDncRemoveIn: {
+            /** Reason */
+            reason: string;
+        };
+        /** PublicKeyInfoOut */
+        PublicKeyInfoOut: {
+            /** Agent Ids */
+            agent_ids: string[] | null;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Scopes */
+            scopes: string[];
+        };
+        /** PublicLaunchBlockerOut */
+        PublicLaunchBlockerOut: {
+            /** Reason */
+            reason: string;
+            /** Rule */
+            rule: string;
+        };
+        /** PublicLaunchCheckOut */
+        PublicLaunchCheckOut: {
+            /** Blockers */
+            blockers: components["schemas"]["PublicLaunchBlockerOut"][];
+            /**
+             * Object
+             * @default launch_check
+             * @constant
+             */
+            object: "launch_check";
+            /** Ready */
+            ready: boolean;
+        };
+        /** PublicLaunchOut */
+        PublicLaunchOut: {
+            /** Dialable */
+            dialable: number;
+            /** Dnc Scrubbed */
+            dnc_scrubbed: number;
+            /**
+             * Object
+             * @default launch
+             * @constant
+             */
+            object: "launch";
+            /** Status */
+            status: string;
+        };
+        /** PublicLeadDetailOut */
+        PublicLeadDetailOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Call Count */
+            call_count: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Fields */
+            fields: components["schemas"]["PublicLeadFieldOut"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Call Id */
+            last_call_id: string | null;
+            /** Name */
+            name: string | null;
+            /**
+             * Object
+             * @default lead
+             * @constant
+             */
+            object: "lead";
+            /** Phone */
+            phone: string;
+            /** Source */
+            source: string;
+            /** Status */
+            status: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** PublicLeadFieldOut */
+        PublicLeadFieldOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "text" | "number" | "bool" | "enum" | "date";
+            /** Value */
+            value?: unknown;
+        };
+        /** PublicLeadList */
+        PublicLeadList: {
+            /** Api Version */
+            api_version: string;
+            /** Data */
+            data: components["schemas"]["PublicLeadOut"][];
+            /**
+             * Has More
+             * @default false
+             */
+            has_more: boolean;
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /**
+             * Object
+             * @default list
+             * @constant
+             */
+            object: "list";
+        };
+        /** PublicLeadOut */
+        PublicLeadOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Call Count */
+            call_count: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Call Id */
+            last_call_id: string | null;
+            /** Name */
+            name: string | null;
+            /**
+             * Object
+             * @default lead
+             * @constant
+             */
+            object: "lead";
+            /** Phone */
+            phone: string;
+            /** Source */
+            source: string;
+            /** Status */
+            status: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** PublicMeOut */
+        PublicMeOut: {
+            account: components["schemas"]["PublicAccountOut"];
+            /** Api Version */
+            api_version: string;
+            key: components["schemas"]["PublicKeyInfoOut"];
+            /**
+             * Object
+             * @default me
+             * @constant
+             */
+            object: "me";
+        };
+        /** PublicNumberList */
+        PublicNumberList: {
+            /** Api Version */
+            api_version: string;
+            /** Data */
+            data: components["schemas"]["PublicNumberOut"][];
+            /**
+             * Has More
+             * @default false
+             */
+            has_more: boolean;
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /**
+             * Object
+             * @default list
+             * @constant
+             */
+            object: "list";
+        };
+        /** PublicNumberOut */
+        PublicNumberOut: {
+            /** Active */
+            active: boolean;
+            /** Agent Id */
+            agent_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Direction */
+            direction: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Inbound Line Id */
+            inbound_line_id: string | null;
+            /**
+             * Object
+             * @default number
+             * @constant
+             */
+            object: "number";
+            /** Phone */
+            phone: string;
+        };
+        /**
+         * PublicPlaceCallIn
+         * @description Exactly one of `phone`, `lead_id` or `follow_up_of` names the person.
+         */
+        PublicPlaceCallIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /** At */
+            at?: string | null;
+            /** Details */
+            details?: string | null;
+            /** Follow Up Of */
+            follow_up_of?: string | null;
+            /** Lead Id */
+            lead_id?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Phone */
+            phone?: string | null;
+            /** Reason */
+            reason?: string | null;
+        };
+        /** PublicPlaceCallOut */
+        PublicPlaceCallOut: {
+            /** Blocked Reason */
+            blocked_reason?: string | null;
+            /** Blocked Rule */
+            blocked_rule?: string | null;
+            /** Call Id */
+            call_id?: string | null;
+            /** Callback Id */
+            callback_id?: string | null;
+            /** Lead Id */
+            lead_id?: string | null;
+            /**
+             * Object
+             * @default call_request
+             * @constant
+             */
+            object: "call_request";
+            /** Opens At */
+            opens_at?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "scheduled" | "blocked";
+        };
+        /** PublicTranscriptTurnOut */
+        PublicTranscriptTurnOut: {
+            /** Speaker */
+            speaker: string;
+            /** Text Redacted */
+            text_redacted: string | null;
+        };
         /** PublicationOut */
         PublicationOut: {
             /** Note */
@@ -42302,6 +43626,782 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_agents_api_v1_agents_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                /** @description `next_cursor` from the previous page */
+                after?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicAgentList"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_agent_api_v1_agents__agent_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicAgentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    balance_api_v1_balance_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicBalanceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_calls_api_v1_calls_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                /** @description `next_cursor` from the previous page */
+                after?: string | null;
+                direction?: string | null;
+                agent_id?: string | null;
+                campaign_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicCallList"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    place_call_api_v1_calls_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicPlaceCallIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicPlaceCallOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_call_api_v1_calls__call_id__get: {
+        parameters: {
+            query?: {
+                /** @description Seconds to wait for the end */
+                wait?: number;
+            };
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicCallDetailOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_campaigns_api_v1_campaigns_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                /** @description `next_cursor` from the previous page */
+                after?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicCampaignList"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_campaign_api_v1_campaigns__campaign_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicCampaignOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    add_campaign_contacts_api_v1_campaigns__campaign_id__contacts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicAddContactsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicAddContactsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    launch_campaign_api_v1_campaigns__campaign_id__launch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicLaunchOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    campaign_launch_check_api_v1_campaigns__campaign_id__launch_check_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicLaunchCheckOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    pause_campaign_api_v1_campaigns__campaign_id__pause_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicCampaignStateOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    resume_campaign_api_v1_campaigns__campaign_id__resume_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicCampaignStateOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    stop_campaign_api_v1_campaigns__campaign_id__stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicCampaignStateOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_dnc_api_v1_dnc_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                /** @description `next_cursor` from the previous page */
+                after?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicDncList"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    add_dnc_api_v1_dnc_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicDncAddIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicDncAddOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    check_dnc_api_v1_dnc_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicDncCheckIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicDncCheckOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    remove_dnc_api_v1_dnc__entry_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicDncRemoveIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_inbound_calls_api_v1_inbound_calls_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                /** @description `next_cursor` from the previous page */
+                after?: string | null;
+                agent_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicCallList"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_leads_api_v1_leads_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                /** @description `next_cursor` from the previous page */
+                after?: string | null;
+                agent_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicLeadList"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_lead_api_v1_leads_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicCreateLeadIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicCreateLeadOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_lead_api_v1_leads__lead_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicLeadDetailOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    me_api_v1_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicMeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_numbers_api_v1_numbers_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                /** @description `next_cursor` from the previous page */
+                after?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicNumberList"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     health_healthz_get: {
         parameters: {
             query?: never;
@@ -52027,6 +54127,167 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_keys_v1_api_keys_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiKeysOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_key_v1_api_keys_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateApiKeyIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedApiKeyOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_activity_v1_api_keys_activity_get: {
+        parameters: {
+            query?: {
+                /** @description Only this key's requests */
+                key_id?: string | null;
+                /** @description Only requests that were refused or failed */
+                failed?: boolean;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiActivityListOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    renew_key_v1_api_keys__key_id__renew_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiKeyOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    revoke_key_v1_api_keys__key_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiKeyOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {

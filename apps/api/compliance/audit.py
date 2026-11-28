@@ -329,7 +329,22 @@ async def write_audit(
     # audit writer in the fleet behind a transaction that is going to roll back anyway.
     key = _active_key()
     resolved_actor_type = actor_type or (
-        "admin" if actor and actor.is_admin else "user" if actor else "system"
+        "admin"
+        if actor and actor.is_admin
+        else "api_key"
+        if actor and actor.kind == "api_key"
+        else "user"
+        if actor
+        else "system"
+    )
+    # A key acting is recorded as the KEY (D-1047): its creator is one join away
+    # (`api_keys.created_by`), and naming the creator here would read as a person's act.
+    actor_id = (
+        actor.api_key_id
+        if actor is not None and actor.kind == "api_key"
+        else actor.user_id
+        if actor
+        else None
     )
     entry_id = uuid7()
     # WHICH VIEW-AS SESSION THIS ACT CAME THROUGH, or None (D-587).
@@ -351,7 +366,7 @@ async def write_audit(
     payload: dict[str, Any] = {
         "id": str(entry_id),
         "actor_type": resolved_actor_type,
-        "actor_id": str(actor.user_id) if actor and actor.user_id else None,
+        "actor_id": str(actor_id) if actor_id else None,
         "tenant_id": str(tenant_id) if tenant_id else None,
         "action": action,
         "object_type": object_type,
@@ -405,7 +420,7 @@ async def write_audit(
         {
             "id": entry_id,
             "actor_type": resolved_actor_type,
-            "actor_id": actor.user_id if actor else None,
+            "actor_id": actor_id,
             "tenant_id": tenant_id,
             "action": action,
             "object_type": object_type,

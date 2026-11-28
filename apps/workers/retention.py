@@ -3952,6 +3952,11 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # How each answer went and its thumbs (D-937): tool names, ids and a vote.
         outcomes = await session.execute(text("DELETE FROM copilot_answer_outcomes"))
         counts["copilot_answer_outcomes_erased"] = int(rowcount_of(outcomes) or 0)
+        # The account's API keys and their activity log (D-1047). The log first: its rows
+        # reference the keys, and a key outliving its account is a credential for nothing.
+        await session.execute(text("DELETE FROM api_requests"))
+        keys_erased = await session.execute(text("DELETE FROM api_keys"))
+        counts["api_keys_erased"] = int(rowcount_of(keys_erased) or 0)
         # The routines and their runs (migration d3a7f5c19e42) BEFORE the jobs their runs
         # point at: a routine's instruction is prose a person typed, the same shape as the
         # conversation above, and runs cascade with their routine.
@@ -4259,6 +4264,10 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
                 "copilot_answer_outcomes": (
                     f"{counts['copilot_answer_outcomes_erased']} in-app assistant answer "
                     "rating(s) and score record(s) deleted"
+                ),
+                "api_keys": (
+                    f"{counts['api_keys_erased']} API key(s) deleted, with the log of "
+                    "what they were used for"
                 ),
                 "usage_events": "retained — append-only ledger, carries no personal data",
                 "consent_ledger": "retained — append-only proof that consent existed",

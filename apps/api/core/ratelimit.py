@@ -178,6 +178,13 @@ PROFILES: dict[str, LimitProfile] = {
     # read and five Decimal divisions — no database, no vendor, nothing a flood can
     # amplify. No tenant dimension because there is no tenant.
     "public_read": LimitProfile("public_read", per_client=600, per_tenant=None),
+    # The public API (D-1047). `per_client` is one KEY's ceiling (the middleware keys the
+    # bucket on the bearer's fingerprint; `core/auth.current_api_key` counts the key's own
+    # bucket against this or the lower figure the key's owner set), `per_tenant` the whole
+    # account's across every key. Below `client_api` because an integration is one process
+    # where a dashboard is many people; a costly call (a dial, a launch) is weighted by the
+    # rules below exactly as on the console.
+    "public_api": LimitProfile("public_api", per_client=120, per_tenant=600),
     # The voice engine's door (`/v1/worker/**`: in-call actions and caller lookups), for
     # `webhook_ingest`'s reason: the caller is the engine serving EVERY tenant from a
     # handful of egress addresses, so a per-caller ceiling is a near-global one, and a 429
@@ -297,6 +304,12 @@ RULES: tuple[Rule, ...] = (
     # `client_api`'s — which was sized for one signed-in person, not for a site.
     Rule("/v1/public/**", "public_read"),
     Rule("/v1/worker/**", "worker_api"),
+    # The public API's family and its cost weights (D-1047).
+    Rule("/api/v1/**", "public_api"),
+    Rule("/api/v1/calls", "costly", _m("POST")),
+    Rule("/api/v1/leads", "costly", _m("POST")),
+    Rule("/api/v1/campaigns/*/contacts", "bulk_write", _m("POST")),
+    Rule("/api/v1/campaigns/*/launch", "costly", _m("POST")),
     # --- families -----------------------------------------------------------------
     Rule("/v1/**", "client_api"),
     Rule("/v1/admin/**", "admin_api"),
@@ -560,6 +573,11 @@ class Decision:
     #: The Redis key this call counted against, or None when nothing was counted. Only
     #: `forget` reads it.
     bucket_key: str | None = None
+    #: The ceiling this bucket was counted against and what is left of it, when something
+    #: was counted: what the public surface's `RateLimit` field reports (`limit_fields`).
+    limit: int | None = None
+    remaining: int | None = None
+    resets_in_s: int = 0
 
 
 #: The answer when NOTHING WAS COUNTED — an unlimited profile, or a counter we could not
@@ -614,8 +632,24 @@ async def consume(
         return Decision(allowed=False, retry_after_s=retry_after, reason="unavailable")
 
     if count <= limit:
-        return Decision(allowed=True, retry_after_s=0, first_in_window=count == 1, bucket_key=key)
-    return Decision(allowed=False, retry_after_s=retry_after, reason="over_limit", bucket_key=key)
+        return Decision(
+            allowed=True,
+            retry_after_s=0,
+            first_in_window=count == 1,
+            bucket_key=key,
+            limit=limit,
+            remaining=limit - count,
+            resets_in_s=retry_after,
+        )
+    return Decision(
+        allowed=False,
+        retry_after_s=retry_after,
+        reason="over_limit",
+        bucket_key=key,
+        limit=limit,
+        remaining=0,
+        resets_in_s=retry_after,
+    )
 
 
 async def forget(decision: Decision) -> None:
@@ -633,6 +667,28 @@ async def forget(decision: Decision) -> None:
         await get_redis().delete(decision.bucket_key)
     except Exception:
         log.warning("ratelimit_unforgettable")
+
+
+def limit_fields(policies: list[tuple[str, int, Decision]]) -> dict[str, str]:
+    """The `RateLimit-Policy` and `RateLimit` response fields for counted buckets.
+
+    The IETF httpapi draft's Structured Fields syntax (draft-ietf-httpapi-ratelimit-
+    headers-11, May 2026, https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-
+    ratelimit-headers-11): a policy is a quoted name with `q` (quota) and `w` (window,
+    seconds); the current state is the same name with `r` (remaining) and `t` (seconds
+    until it resets). Chosen over the `X-RateLimit-*` folk headers because an integrator's
+    HTTP library can read one standard rather than our spelling of three numbers.
+
+    `policies` is `(name, window_s, decision)`; a decision that counted nothing (a limiter
+    outage failing open) is left out rather than reported as full.
+    """
+    counted = [(n, w, d) for n, w, d in policies if d.limit is not None and d.remaining is not None]
+    if not counted:
+        return {}
+    return {
+        "RateLimit-Policy": ", ".join(f'"{n}";q={d.limit};w={w}' for n, w, d in counted),
+        "RateLimit": ", ".join(f'"{n}";r={d.remaining};t={d.resets_in_s}' for n, w, d in counted),
+    }
 
 
 def too_many_requests(decision: Decision) -> ProblemError:
@@ -678,6 +734,7 @@ __all__ = [
     "consume",
     "fingerprint",
     "forget",
+    "limit_fields",
     "profile_for",
     "resolve_rule",
     "too_many_requests",
