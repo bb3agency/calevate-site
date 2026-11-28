@@ -13,6 +13,7 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -37,6 +38,12 @@ export interface AnalyticsRange {
   agentId?: string;
   /** False leaves out the owner's own test calls. */
   testCalls?: boolean;
+  /** Only one campaign's calls; leads follow the call that first reached them. */
+  campaignId?: string;
+  /** Only the calls one inbound line took. */
+  lineId?: string;
+  /** Only calls made (`outbound`) or taken (`inbound`). */
+  direction?: "inbound" | "outbound";
 }
 
 function search(params: Record<string, string | number | boolean | undefined>): string {
@@ -54,6 +61,9 @@ function rangeParams(range: AnalyticsRange) {
     to: range.to,
     agent_id: range.agentId,
     test_calls: range.testCalls,
+    campaign_id: range.campaignId,
+    line_id: range.lineId,
+    direction: range.direction,
   };
 }
 
@@ -67,7 +77,65 @@ export const analyticsKeys = {
   stats: (org: string, args: object) => ["analytics", org, "stats", args] as const,
   summary: (org: string, args: object) => ["analytics", org, "summary", args] as const,
   callGroups: (org: string, args: object) => ["analytics", org, "call-groups", args] as const,
+  speed: (org: string, period: string) => ["analytics", org, "speed-to-lead", period] as const,
+  agentsToday: (org: string) => ["analytics", org, "agents-today"] as const,
+  lastHour: (org: string, args: object) => ["analytics", org, "last-hour", args] as const,
+  qualityWeeks: (org: string, weeks: number) => ["analytics", org, "quality-weeks", weeks] as const,
 };
+
+export type SpeedToLead = Schemas["SpeedToLeadOut"];
+export type SpeedFigures = Schemas["SpeedFiguresOut"];
+export type SpeedSource = Schemas["SpeedSourceOut"];
+export type SpeedPeriod = SpeedToLead["window"]["period"];
+export type AgentsToday = Schemas["AgentsTodayOut"];
+export type AgentToday = Schemas["AgentTodayOut"];
+export type LastHour = Schemas["LastHourOut"];
+export type QualityWeeks = Schemas["QualityWeeksOut"];
+export type QualityWeek = Schemas["QualityWeekOut"];
+
+/** How fast new leads from lead sources were called: in total, per source, and (from the
+ *  server's floor of called leads) interested rate by a first call within a minute or later. */
+export function useSpeedToLead(session: Session, period: SpeedPeriod): UseQueryResult<SpeedToLead> {
+  return useQuery({
+    queryKey: analyticsKeys.speed(session.orgSlug, period),
+    queryFn: () => apiRequest<SpeedToLead>(session, `/v1/analytics/speed-to-lead${search({ period })}`),
+  });
+}
+
+/** Each agent's calls, answered calls and new leads on today's IST day; an agent absent
+ *  from the list had none. */
+export function useAgentsToday(session: Session): UseQueryResult<AgentsToday> {
+  return useQuery({
+    queryKey: analyticsKeys.agentsToday(session.orgSlug),
+    queryFn: () => apiRequest<AgentsToday>(session, "/v1/analytics/agents-today"),
+    refetchInterval: untilRefused(60_000),
+  });
+}
+
+/** Calls per five minutes over the last hour and how many are live now; polled while the
+ *  screen is open so the line moves with the calls. */
+export function useLastHour(session: Session, range: AnalyticsRange = {}): UseQueryResult<LastHour> {
+  const params = {
+    agent_id: range.agentId,
+    campaign_id: range.campaignId,
+    line_id: range.lineId,
+    direction: range.direction,
+  };
+  return useQuery({
+    queryKey: analyticsKeys.lastHour(session.orgSlug, params),
+    queryFn: () => apiRequest<LastHour>(session, `/v1/analytics/last-hour${search(params)}`),
+    refetchInterval: untilRefused(30_000),
+  });
+}
+
+/** The weekly call-quality scorecard: calls read, goal reached, questions not known, calls
+ *  with a mistake, per Monday-first IST week. */
+export function useQualityWeeks(session: Session, weeks = 8): UseQueryResult<QualityWeeks> {
+  return useQuery({
+    queryKey: analyticsKeys.qualityWeeks(session.orgSlug, weeks),
+    queryFn: () => apiRequest<QualityWeeks>(session, `/v1/analytics/quality-weeks${search({ weeks })}`),
+  });
+}
 
 export type Summary = Schemas["SummaryOut"];
 export type SummaryRow = Schemas["SummaryRowOut"];

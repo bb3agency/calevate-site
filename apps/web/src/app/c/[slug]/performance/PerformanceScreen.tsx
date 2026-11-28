@@ -44,6 +44,9 @@ import { asText } from "@/lib/copilot/types";
 import { istDayLabel, metricLabel, statItems } from "../analyticsFigures";
 import { chartError } from "../ChartRetry";
 import { CallGroupsTable, PeriodTable } from "./Breakdowns";
+import { PerformanceFilters, isNarrowed, type Narrowing } from "./Filters";
+import { LastHour } from "./LastHour";
+import { QualityWeeks } from "./QualityWeeks";
 import { ReplySpeed } from "./ReplySpeed";
 import {
   DURATIONS_NOTE,
@@ -95,16 +98,18 @@ export function PerformanceScreen() {
   const [testCalls, setTestCalls] = useState(false);
   const [heatmapMetric, setHeatmapMetric] = useState<"calls" | "leads">("calls");
   const [groupBy, setGroupBy] = useState<"agent" | "outcome">("agent");
+  const [narrow, setNarrow] = useState<Narrowing>({});
+  const narrowed = isNarrowed(narrow);
 
   const today = todayIST();
   const days = Math.min(MAX_DAYS, daysBetween(range.start, range.end));
-  const window: AnalyticsRange = { days, to: range.end, testCalls };
+  const window: AnalyticsRange = { days, to: range.end, testCalls, ...narrow };
 
   const stats = useAnalyticsStats(session, window);
   const heatmap = useActivityHeatmap(session, { ...window, metric: heatmapMetric });
   const durations = useCallDurations(session, { ...window, groupBy, binSeconds: 30 });
   const timelineDays = Math.min(MAX_DAYS, Math.max(days, TIMELINE_MIN_DAYS));
-  const timeline = useActivityTimeline(session, { days: timelineDays, to: range.end, testCalls });
+  const timeline = useActivityTimeline(session, { ...window, days: timelineDays });
   const perf = usePerformance(session, days, { to: range.end, testCalls });
   // A stretch with no calls at all is the chart's empty state, not a flat line to drag along.
   const drawnDays = timeline.data && timeline.data.calls > 0 ? timeline.data.days : [];
@@ -135,6 +140,13 @@ export function PerformanceScreen() {
               : "still loading",
       },
       { key: "period", label: "Period the figures cover (IST)", value: rangeWords },
+      {
+        key: "narrowed",
+        label: "Narrowed by agent, campaign or line, or direction",
+        value: narrowed
+          ? "yes; the funnel and how calls ended still count every call"
+          : "no, every call",
+      },
       ...(stats.data
         ? stats.data.metrics.map((metric) => ({
             key: `stat_${metric.key}`,
@@ -204,6 +216,9 @@ export function PerformanceScreen() {
           className="pb-2"
         />
       </div>
+      <PerformanceFilters session={session} value={narrow} onChange={setNarrow} />
+
+      <LastHour session={session} range={window} />
 
       {/* A failed refresh keeps the figures it had, under the notice. */}
       {stats.error ? <ProblemNotice error={stats.error} onRetry={() => void stats.refetch()} /> : null}
@@ -213,12 +228,16 @@ export function PerformanceScreen() {
       ) : (
         <StatsBand
           label={COPY.glance}
-          items={statItems(stats.data, ["calls", "answer_rate_pct", "leads", "avg_duration_s"], {
-            context: `vs the previous ${formatCount(stats.data.window.days)} days`,
-            caps,
-          })}
+          items={statItems(
+            stats.data,
+            ["calls", "answer_rate_pct", "leads", "interested_rate_pct", "avg_duration_s", "spent_inr"],
+            { context: `vs the previous ${formatCount(stats.data.window.days)} days`, caps },
+          )}
         />
       )}
+      {stats.data?.spend_withheld === "narrowed" || stats.data?.spend_withheld === "one_agent" ? (
+        <p className="text-meta text-ink-muted">{COPY.spendNarrowed}</p>
+      ) : null}
 
       {/* Weekly, whatever the range above: the platform times calls per week (D-944). */}
       <ReplySpeed session={session} />
@@ -254,6 +273,9 @@ export function PerformanceScreen() {
 
       <CallGroupsTable range={window} />
 
+      <QualityWeeks />
+
+      {narrowed ? <p className="text-meta text-ink-muted">{COPY.everyCallBelow}</p> : null}
       <div className="grid grid-cols-1 items-start gap-10 page-lg:grid-cols-12 page-lg:gap-12">
         <Section title={funnelTitle(callers)} info={FUNNEL_NOTE} className="page-lg:col-span-7">
           <PerformancePanel perf={perf} kind="funnel" period={rangeWords} />

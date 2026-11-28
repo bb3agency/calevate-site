@@ -379,6 +379,20 @@ export function stubApi(routes: Routes): ApiCall[] {
         // WHAT EACH AGENT HAS DONE, answered "no calls" by default: the agent page's header
         // reads it for "Calls (n)". A test about the count names the route.
         if (scoped === "GET /v1/agents/stats") return jsonResponse([]);
+        // EACH AGENT'S DAY (W8.3), answered "no calls today" by default: the roster reads it
+        // for its "Today:" line. A test about the line names the route.
+        if (scoped === "GET /v1/analytics/agents-today") {
+          return jsonResponse({ ist_date: "2026-11-28", timezone: "Asia/Kolkata", agents: [] });
+        }
+        // THE LAST HOUR AND THE WEEKLY SCORECARD (W8.2, W8.5), answered "nobody on a call" and
+        // "no week read" by default, with no campaign or line to filter by: the Performance
+        // screen reads all four. A test about one names its route.
+        if (path.startsWith("/v1/analytics/last-hour")) {
+          return jsonResponse({ live_now: 0, calls: 0, slots: [] });
+        }
+        if (path.startsWith("/v1/analytics/quality-weeks")) return jsonResponse({ weeks: [], gap_agents: [] });
+        if (scoped === "GET /v1/campaigns") return jsonResponse([]);
+        if (scoped === "GET /v1/inbound-lines") return jsonResponse([]);
         // TODAY'S TEST CALLS (D-885), answered "none today" by default: every trial card
         // reads them. A test about the card's calls names the route itself.
         if (scoped === "GET /v1/trial/calls") return jsonResponse([]);

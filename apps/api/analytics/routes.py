@@ -15,8 +15,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.analytics import proof, service
+from apps.api.analytics import proof, service, speed, today
 from apps.api.analytics.schemas import (
+    AgentsTodayOut,
     CallGroupBy,
     CallGroupsOut,
     CampaignTimelinesOut,
@@ -24,6 +25,10 @@ from apps.api.analytics.schemas import (
     DurationsOut,
     HeatmapMetric,
     HeatmapOut,
+    LastHourOut,
+    QualityWeeksOut,
+    SpeedPeriod,
+    SpeedToLeadOut,
     StatsOut,
     SummaryBucket,
     SummaryOut,
@@ -34,6 +39,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta, role_has
+from apps.api.crm.lens import CallDirection
 
 router = APIRouter(prefix="/v1/analytics", tags=["analytics"])
 
@@ -52,6 +58,29 @@ To = Annotated[
     Query(description="The last IST day of the range (YYYY-MM-DD). Today when left out."),
 ]
 AgentFilter = Annotated[UUID | None, Query(description="Only this agent's calls and leads.")]
+
+
+def narrowing(
+    campaign_id: Annotated[UUID | None, Query(description="Only this campaign's calls.")] = None,
+    line_id: Annotated[
+        UUID | None, Query(description="Only the calls this inbound line took.")
+    ] = None,
+    direction: Annotated[
+        CallDirection | None, Query(description="Only calls made (outbound) or taken (inbound).")
+    ] = None,
+) -> service.Narrowing:
+    """The Performance screen's filters beside the agent (W8.2). A lead follows the call
+    that first reached them."""
+    return service.Narrowing(campaign_id=campaign_id, line_id=line_id, direction=direction)
+
+
+Narrow = Annotated[service.Narrowing, Depends(narrowing)]
+
+
+def _may_see_spend(principal: Principal) -> bool:
+    return principal.role is not None and role_has(principal.role, "billing:read")
+
+
 TestCalls = Annotated[
     bool,
     Query(
@@ -70,6 +99,7 @@ TestCalls = Annotated[
 async def get_heatmap(
     session: Session,
     _: Reader,
+    narrow: Narrow,
     days: Days = service.DEFAULT_RANGE_DAYS,
     to: To = None,
     metric: Annotated[HeatmapMetric, Query()] = "calls",
@@ -78,7 +108,12 @@ async def get_heatmap(
 ) -> HeatmapOut:
     window = service.resolve_window(days=days, to=to)
     return await service.heatmap(
-        session, window=window, metric=metric, agent_id=agent_id, test_calls=test_calls
+        session,
+        window=window,
+        metric=metric,
+        agent_id=agent_id,
+        test_calls=test_calls,
+        narrow=narrow,
     )
 
 
@@ -91,6 +126,7 @@ async def get_heatmap(
 async def get_durations(
     session: Session,
     _: Reader,
+    narrow: Narrow,
     days: Days = service.DEFAULT_RANGE_DAYS,
     to: To = None,
     group_by: Annotated[DurationGroupBy, Query()] = "agent",
@@ -116,6 +152,7 @@ async def get_durations(
         limit=limit,
         agent_id=agent_id,
         test_calls=test_calls,
+        narrow=narrow,
     )
 
 
@@ -128,13 +165,16 @@ async def get_durations(
 async def get_timeline(
     session: Session,
     _: Reader,
+    narrow: Narrow,
     days: Days = 90,
     to: To = None,
     agent_id: AgentFilter = None,
     test_calls: TestCalls = False,
 ) -> TimelineOut:
     window = service.resolve_window(days=days, to=to)
-    return await service.timeline(session, window=window, agent_id=agent_id, test_calls=test_calls)
+    return await service.timeline(
+        session, window=window, agent_id=agent_id, test_calls=test_calls, narrow=narrow
+    )
 
 
 @router.get(
@@ -164,17 +204,30 @@ async def get_campaign_timelines(
     response_model=StatsOut,
     openapi_extra=permission_meta("calls:read"),
     summary="The stats band for a range, each figure beside the same length of time before",
+    description=(
+        "`spent_inr` is what left the wallet, added only for a reader holding `billing:read` "
+        "on a read of the whole account; otherwise `spend_withheld` says why it is absent."
+    ),
 )
 async def get_stats(
     session: Session,
-    _: Reader,
+    principal: Reader,
+    narrow: Narrow,
     days: Days = 7,
     to: To = None,
     agent_id: AgentFilter = None,
     test_calls: TestCalls = False,
 ) -> StatsOut:
     window = service.resolve_window(days=days, to=to)
-    return await service.stats(session, window=window, agent_id=agent_id, test_calls=test_calls)
+    return await service.stats(
+        session,
+        window=window,
+        agent_id=agent_id,
+        test_calls=test_calls,
+        narrow=narrow,
+        tenant_id=principal.tenant_id,
+        may_see_spend=_may_see_spend(principal),
+    )
 
 
 @router.get(
@@ -191,6 +244,7 @@ async def get_stats(
 async def get_call_groups(
     session: Session,
     _: Reader,
+    narrow: Narrow,
     by: Annotated[CallGroupBy, Query(description="caller, outcome or agent")] = "caller",
     days: Days = 7,
     to: To = None,
@@ -208,6 +262,7 @@ async def get_call_groups(
         test_calls=test_calls,
         min_calls=min_calls,
         limit=limit,
+        narrow=narrow,
     )
 
 
@@ -219,12 +274,13 @@ async def get_call_groups(
     description=(
         "Weeks start on Monday; the first and last bucket are cut to the range. Spend is "
         "what left the wallet and is null with `spend_withheld` when the reader does not "
-        "hold `billing:read` or one agent is picked."
+        "hold `billing:read`, one agent is picked, or the calls are narrowed."
     ),
 )
 async def get_summary(
     session: Session,
     principal: Reader,
+    narrow: Narrow,
     days: Days = 30,
     to: To = None,
     bucket: Annotated[SummaryBucket, Query(description="day, week or month")] = "week",
@@ -240,7 +296,8 @@ async def get_summary(
         bucket=bucket,
         agent_id=agent_id,
         test_calls=test_calls,
-        may_see_spend=principal.role is not None and role_has(principal.role, "billing:read"),
+        may_see_spend=_may_see_spend(principal),
+        narrow=narrow,
     )
 
 
@@ -279,6 +336,65 @@ async def get_cost_per_result(
 ) -> proof.CostPerResultOut:
     assert principal.tenant_id is not None
     return await proof.cost_per_result(session, tenant_id=principal.tenant_id)
+
+
+@router.get(
+    "/speed-to-lead",
+    response_model=SpeedToLeadOut,
+    openapi_extra=permission_meta("calls:read"),
+    summary="How fast new leads from lead sources were called, in total and per source",
+    description=(
+        "From the moment a delivery reached us (or, after hours, its release or the opening "
+        "it was booked for) to our first call to the person. `24h` is the last 24 hours; the "
+        "day periods are IST calendar days ending today. `compare` is null below "
+        "`compare_min_leads` called leads."
+    ),
+)
+async def get_speed_to_lead(
+    session: Session,
+    _: Reader,
+    period: Annotated[SpeedPeriod, Query(description="24h, 7d, 30d or 90d")] = "7d",
+) -> SpeedToLeadOut:
+    return await speed.speed_to_lead(session, period=period)
+
+
+@router.get(
+    "/agents-today",
+    response_model=AgentsTodayOut,
+    openapi_extra=permission_meta("calls:read"),
+    summary="Each agent's calls, answered calls and new leads today (IST)",
+)
+async def get_agents_today(session: Session, _: Reader) -> AgentsTodayOut:
+    return await today.agents_today(session)
+
+
+@router.get(
+    "/last-hour",
+    response_model=LastHourOut,
+    openapi_extra=permission_meta("calls:read"),
+    summary="Calls started in each five minutes of the last hour, and how many are live now",
+)
+async def get_last_hour(
+    session: Session,
+    _: Reader,
+    narrow: Narrow,
+    agent_id: AgentFilter = None,
+) -> LastHourOut:
+    return await today.last_hour(session, agent_id=agent_id, narrow=narrow)
+
+
+@router.get(
+    "/quality-weeks",
+    response_model=QualityWeeksOut,
+    openapi_extra=permission_meta("calls:read"),
+    summary="Per IST week: calls read, goal reached, questions not known, calls with a mistake",
+)
+async def get_quality_weeks(
+    session: Session,
+    _: Reader,
+    weeks: Annotated[int, Query(ge=1, le=today.MAX_QUALITY_WEEKS)] = today.DEFAULT_QUALITY_WEEKS,
+) -> QualityWeeksOut:
+    return await today.quality_weeks(session, weeks=weeks)
 
 
 __all__ = ["router"]

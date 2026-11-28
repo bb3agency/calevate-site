@@ -58,6 +58,7 @@ from apps.api.billing.history import spend_series
 from apps.api.billing.plans import IST
 from apps.api.core.errors import ProblemError
 from apps.api.crm.lead_definition import BECAME_LEADS_SQL, GOAL_BAND
+from apps.api.crm.lens import CallDirection
 from apps.api.crm.performance import (
     CONNECTED_SQL,
     IST_ZONE,
@@ -91,15 +92,45 @@ _ONE_DP = Decimal("0.1")
 _CALLS_IN_RANGE = (
     "started_at >= :start AND started_at < :end "
     "AND (CAST(:aid AS uuid) IS NULL OR agent_id = CAST(:aid AS uuid)) "
-    "AND (CAST(:test AS boolean) OR NOT (trial_call OR paid_test_call))"
+    "AND (CAST(:test AS boolean) OR NOT (trial_call OR paid_test_call)) "
+    "AND (CAST(:cid AS uuid) IS NULL OR campaign_id = CAST(:cid AS uuid)) "
+    "AND (CAST(:lid AS uuid) IS NULL OR inbound_line_id = CAST(:lid AS uuid)) "
+    "AND (CAST(:dir AS text) IS NULL OR direction = CAST(:dir AS text))"
 )
 #: The people who became a lead in a range (`crm/lead_definition`), dated by when they did,
 #: not by when their contact row was made: every person called gets a row.
 _LEADS_FROM = f"{BECAME_LEADS_SQL} AS bl"
+#: A lead belongs to a campaign, a line or a direction by the call that first reached them,
+#: the rule `campaign_timelines` already counts a campaign's leads by.
 _LEADS_IN_RANGE = (
     "bl.became_lead_at >= :start AND bl.became_lead_at < :end "
-    "AND (CAST(:aid AS uuid) IS NULL OR bl.agent_id = CAST(:aid AS uuid))"
+    "AND (CAST(:aid AS uuid) IS NULL OR bl.agent_id = CAST(:aid AS uuid)) "
+    "AND ((CAST(:cid AS uuid) IS NULL AND CAST(:lid AS uuid) IS NULL "
+    "AND CAST(:dir AS text) IS NULL) OR EXISTS (SELECT 1 FROM calls fc "
+    "WHERE fc.id = bl.first_call_id "
+    "AND (CAST(:cid AS uuid) IS NULL OR fc.campaign_id = CAST(:cid AS uuid)) "
+    "AND (CAST(:lid AS uuid) IS NULL OR fc.inbound_line_id = CAST(:lid AS uuid)) "
+    "AND (CAST(:dir AS text) IS NULL OR fc.direction = CAST(:dir AS text))))"
 )
+
+
+@dataclass(frozen=True, slots=True)
+class Narrowing:
+    """Which calls a read covers beyond its agent: one campaign, one inbound line, one
+    direction. Leads follow the call that first reached them."""
+
+    campaign_id: UUID | None = None
+    line_id: UUID | None = None
+    direction: CallDirection | None = None
+
+    @property
+    def narrowed(self) -> bool:
+        return (
+            self.campaign_id is not None or self.line_id is not None or self.direction is not None
+        )
+
+
+EVERY_CALL: Final = Narrowing()
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,12 +204,21 @@ def resolve_window(*, days: int, to: date | None, now: datetime | None = None) -
     return Window(start=end - timedelta(days=days - 1), end=end)
 
 
-def _params(window: Window, *, agent_id: UUID | None, test_calls: bool = True) -> dict[str, Any]:
+def _params(
+    window: Window,
+    *,
+    agent_id: UUID | None,
+    test_calls: bool = True,
+    narrow: Narrowing = EVERY_CALL,
+) -> dict[str, Any]:
     return {
         "start": window.start_at,
         "end": window.end_at,
         "aid": agent_id,
         "test": test_calls,
+        "cid": narrow.campaign_id,
+        "lid": narrow.line_id,
+        "dir": narrow.direction,
     }
 
 
@@ -207,11 +247,12 @@ async def heatmap(
     metric: HeatmapMetric,
     agent_id: UUID | None,
     test_calls: bool,
+    narrow: Narrowing = EVERY_CALL,
 ) -> HeatmapOut:
     rows = (
         await session.execute(
             text(_CALLS_HEATMAP_SQL if metric == "calls" else _LEADS_HEATMAP_SQL),
-            _params(window, agent_id=agent_id, test_calls=test_calls),
+            _params(window, agent_id=agent_id, test_calls=test_calls, narrow=narrow),
         )
     ).all()
     counts = {(int(r.weekday), int(r.hour)): int(r.n) for r in rows}
@@ -251,7 +292,10 @@ _DURATIONS_FROM = (
     "FROM calls c WHERE c.status = 'completed' AND c.duration_s IS NOT NULL "
     "AND c.started_at >= :start AND c.started_at < :end "
     "AND (CAST(:aid AS uuid) IS NULL OR c.agent_id = CAST(:aid AS uuid)) "
-    "AND (CAST(:test AS boolean) OR NOT (c.trial_call OR c.paid_test_call))"
+    "AND (CAST(:test AS boolean) OR NOT (c.trial_call OR c.paid_test_call)) "
+    "AND (CAST(:cid AS uuid) IS NULL OR c.campaign_id = CAST(:cid AS uuid)) "
+    "AND (CAST(:lid AS uuid) IS NULL OR c.inbound_line_id = CAST(:lid AS uuid)) "
+    "AND (CAST(:dir AS text) IS NULL OR c.direction = CAST(:dir AS text))"
 )
 
 
@@ -284,8 +328,9 @@ async def durations(
     limit: int,
     agent_id: UUID | None,
     test_calls: bool,
+    narrow: Narrowing = EVERY_CALL,
 ) -> DurationsOut:
-    params = _params(window, agent_id=agent_id, test_calls=test_calls)
+    params = _params(window, agent_id=agent_id, test_calls=test_calls, narrow=narrow)
     totals = (await session.execute(text(_durations_totals_sql(group_by)), params)).all()
     shown = totals[:limit]
     shown_keys = [str(r.key) for r in shown]
@@ -353,13 +398,18 @@ _TIMELINE_SQL: Final = (
 
 
 async def timeline(
-    session: AsyncSession, *, window: Window, agent_id: UUID | None, test_calls: bool
+    session: AsyncSession,
+    *,
+    window: Window,
+    agent_id: UUID | None,
+    test_calls: bool,
+    narrow: Narrowing = EVERY_CALL,
 ) -> TimelineOut:
     rows = (
         await session.execute(
             text(_TIMELINE_SQL),
             {
-                **_params(window, agent_id=agent_id, test_calls=test_calls),
+                **_params(window, agent_id=agent_id, test_calls=test_calls, narrow=narrow),
                 "start_day": window.start,
                 "end_day": window.end,
             },
@@ -466,6 +516,16 @@ _LEAD_FIGURES_SQL: Final = (
     "SELECT count(*) AS leads, count(*) FILTER (WHERE bl.status = ANY(:hot)) AS hot "
     f"FROM {_LEADS_FROM} WHERE {_LEADS_IN_RANGE}"
 )
+#: Of the people whose call was answered in the range, those who are a lead by its end
+#: (`crm/lead_definition`). People over people, so the rate cannot pass 100%: the band's
+#: lead count is dated by when each person became one, and dividing it by answered CALLS
+#: would mix a person count with a call count.
+_INTEREST_SQL: Final = (
+    "SELECT count(*) AS reached, count(bl.id) AS interested FROM "
+    f"(SELECT DISTINCT lead_id FROM calls WHERE lead_id IS NOT NULL AND {CONNECTED_SQL} "
+    f"AND {_CALLS_IN_RANGE}) p "
+    f"LEFT JOIN {_LEADS_FROM} ON bl.id = p.lead_id AND bl.became_lead_at < :end"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -476,24 +536,38 @@ class _Figures:
     talk_minutes: Decimal
     leads: int
     hot_leads: int
+    reached: int
+    interested: int
 
     @property
     def answer_rate_pct(self) -> Decimal | None:
-        if self.calls == 0:
-            return None
-        return (Decimal(self.answered) * 100 / Decimal(self.calls)).quantize(
-            _ONE_DP, rounding=ROUND_HALF_UP
-        )
+        return _rate(self.answered, self.calls)
+
+    @property
+    def interested_rate_pct(self) -> Decimal | None:
+        return _rate(self.interested, self.reached)
+
+
+def _rate(part: int, whole: int) -> Decimal | None:
+    if whole == 0:
+        return None
+    return (Decimal(part) * 100 / Decimal(whole)).quantize(_ONE_DP, rounding=ROUND_HALF_UP)
 
 
 async def _figures(
-    session: AsyncSession, window: Window, *, agent_id: UUID | None, test_calls: bool
+    session: AsyncSession,
+    window: Window,
+    *,
+    agent_id: UUID | None,
+    test_calls: bool,
+    narrow: Narrowing,
 ) -> _Figures:
-    params = _params(window, agent_id=agent_id, test_calls=test_calls)
+    params = _params(window, agent_id=agent_id, test_calls=test_calls, narrow=narrow)
     calls = (await session.execute(text(_FIGURES_SQL), params)).one()
     lead_row = (
         await session.execute(text(_LEAD_FIGURES_SQL), {**params, "hot": list(HOT_STATUSES)})
     ).one()
+    interest = (await session.execute(text(_INTEREST_SQL), params)).one()
     avg = calls.avg_duration
     return _Figures(
         calls=int(calls.calls),
@@ -504,6 +578,8 @@ async def _figures(
         talk_minutes=(Decimal(int(calls.talk_s)) / 60).quantize(_ONE_DP, rounding=ROUND_HALF_UP),
         leads=int(lead_row.leads),
         hot_leads=int(lead_row.hot),
+        reached=int(interest.reached),
+        interested=int(interest.interested),
     )
 
 
@@ -514,22 +590,64 @@ def change_pct(value: Decimal | None, previous: Decimal | None) -> Decimal | Non
     return ((value - previous) * 100 / previous).quantize(_ONE_DP, rounding=ROUND_HALF_UP)
 
 
-def _metric(key: MetricKey, value: Decimal | None, previous: Decimal | None) -> StatsMetricOut:
+def _metric(
+    key: MetricKey,
+    value: Decimal | None,
+    previous: Decimal | None,
+    *,
+    higher_is_better: bool = True,
+) -> StatsMetricOut:
     return StatsMetricOut(
         key=key,
         value=value,
         previous=previous,
         change_pct=change_pct(value, previous),
-        higher_is_better=True,
+        higher_is_better=higher_is_better,
     )
 
 
+def spend_withheld(
+    *, may_see_spend: bool, agent_id: UUID | None, narrow: Narrowing
+) -> SpendWithheld | None:
+    """Why a read may not carry the wallet's spend, or None when it may."""
+    if not may_see_spend:
+        return "no_billing_access"
+    if agent_id is not None:
+        return "one_agent"
+    if narrow.narrowed:
+        return "narrowed"
+    return None
+
+
 async def stats(
-    session: AsyncSession, *, window: Window, agent_id: UUID | None, test_calls: bool
+    session: AsyncSession,
+    *,
+    window: Window,
+    agent_id: UUID | None,
+    test_calls: bool,
+    narrow: Narrowing = EVERY_CALL,
+    tenant_id: UUID | None = None,
+    may_see_spend: bool = False,
 ) -> StatsOut:
+    """The band. Spend is the wallet's for the whole account, so it is added only for a
+    reader who may see billing and an unnarrowed read (`spend_withheld`)."""
     before = window.previous()
-    now = await _figures(session, window, agent_id=agent_id, test_calls=test_calls)
-    then = await _figures(session, before, agent_id=agent_id, test_calls=test_calls)
+    now = await _figures(session, window, agent_id=agent_id, test_calls=test_calls, narrow=narrow)
+    then = await _figures(session, before, agent_id=agent_id, test_calls=test_calls, narrow=narrow)
+    withheld = spend_withheld(
+        may_see_spend=may_see_spend and tenant_id is not None, agent_id=agent_id, narrow=narrow
+    )
+    spend: list[StatsMetricOut] = []
+    if withheld is None and tenant_id is not None:
+        spent_now = await spend_series(
+            session, tenant_id=tenant_id, start=window.start, end=window.end
+        )
+        spent_then = await spend_series(
+            session, tenant_id=tenant_id, start=before.start, end=before.end
+        )
+        spend.append(
+            _metric("spent_inr", spent_now.spent_inr, spent_then.spent_inr, higher_is_better=False)
+        )
 
     def count(value: int) -> Decimal:
         return Decimal(value)
@@ -545,7 +663,10 @@ async def stats(
             _metric("hot_leads", count(now.hot_leads), count(then.hot_leads)),
             _metric("avg_duration_s", now.avg_duration_s, then.avg_duration_s),
             _metric("talk_minutes", now.talk_minutes, then.talk_minutes),
+            _metric("interested_rate_pct", now.interested_rate_pct, then.interested_rate_pct),
+            *spend,
         ],
+        spend_withheld=withheld,
     )
 
 
@@ -623,6 +744,7 @@ async def call_groups(
     test_calls: bool,
     min_calls: int = 1,
     limit: int = 25,
+    narrow: Narrowing = EVERY_CALL,
 ) -> CallGroupsOut:
     """Every call in the window, counted per caller, outcome or agent, in one aggregate.
 
@@ -632,7 +754,7 @@ async def call_groups(
     leaves the query except as its last two digits. A caller is named by their lead, else
     by the campaign list that holds their number."""
     params = {
-        **_params(window, agent_id=agent_id, test_calls=test_calls),
+        **_params(window, agent_id=agent_id, test_calls=test_calls, narrow=narrow),
         "min": max(1, min_calls),
         "limit": max(1, min(limit, MAX_CALL_GROUPS)),
     }
@@ -707,6 +829,7 @@ async def summary(
     agent_id: UUID | None,
     test_calls: bool,
     may_see_spend: bool,
+    narrow: Narrowing = EVERY_CALL,
 ) -> SummaryOut:
     """`timeline`'s days and `billing/history.spend_series`' days, summed into buckets.
 
@@ -715,10 +838,10 @@ async def summary(
     which is debited per account: with one agent picked it is withheld rather than shown
     as the account's, and a reader without `billing:read` never receives it."""
 
-    line = await timeline(session, window=window, agent_id=agent_id, test_calls=test_calls)
-    withheld: SpendWithheld | None = (
-        "no_billing_access" if not may_see_spend else "one_agent" if agent_id else None
+    line = await timeline(
+        session, window=window, agent_id=agent_id, test_calls=test_calls, narrow=narrow
     )
+    withheld = spend_withheld(may_see_spend=may_see_spend, agent_id=agent_id, narrow=narrow)
     spent_by_day: dict[date, Decimal] = {}
     total_spent: Decimal | None = None
     if withheld is None:
@@ -761,10 +884,12 @@ __all__ = [
     "DEFAULT_RANGE_DAYS",
     "DURATION_BINS",
     "DURATION_BIN_WIDTHS",
+    "EVERY_CALL",
     "MAX_CALL_GROUPS",
     "MAX_CAMPAIGN_SERIES",
     "MAX_DURATION_GROUPS",
     "MAX_RANGE_DAYS",
+    "Narrowing",
     "Window",
     "call_groups",
     "campaign_timelines",
@@ -772,6 +897,7 @@ __all__ = [
     "durations",
     "heatmap",
     "resolve_window",
+    "spend_withheld",
     "stats",
     "summary",
     "summary_buckets",

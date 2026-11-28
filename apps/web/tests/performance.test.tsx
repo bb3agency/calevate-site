@@ -276,6 +276,8 @@ describe("the performance report", () => {
       [PATHS.summary]: problem(403, { title: "Forbidden" }),
       [PATHS.groups]: problem(403, { title: "Forbidden" }),
       [REPLY_SPEED_PATH]: problem(403, { title: "Forbidden" }),
+      "/v1/analytics/last-hour": problem(403, { title: "Forbidden" }),
+      "/v1/analytics/quality-weeks?weeks=8": problem(403, { title: "Forbidden" }),
     });
     await screen.findByText(/access to call records/);
     expect(screen.queryByRole("alert"), "a permission is not a fault").toBeNull();

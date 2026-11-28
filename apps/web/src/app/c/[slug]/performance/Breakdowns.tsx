@@ -8,7 +8,7 @@ import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
 import { Section } from "@/components/console/section";
 import { SegmentedControl } from "@/components/interior/segmented-control";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Download } from "lucide-react";
 
 import { SECONDARY_BUTTON_SM, Skeleton, ToggleSwitch, formatCount, formatINR, formatIST } from "@/components/ui";
 import {
@@ -21,6 +21,7 @@ import {
   type SummaryRow,
 } from "@/lib/api/analytics";
 import { useClientRealm } from "@/lib/api/session";
+import { saveCsv, tableCsv } from "@/lib/csvDownload";
 import { OUTCOME_ORDER, callOutcome, endingLabel } from "@/lib/callReview";
 
 import { PERFORMANCE_COPY as COPY } from "./copy";
@@ -118,9 +119,17 @@ export function PeriodTable({ range }: { range: AnalyticsRange }) {
             getRowId={(row) => row.from_date}
             label={`Calls, answered calls and new leads by ${bucket}, newest first`}
           />
+          <button
+            type="button"
+            className={SECONDARY_BUTTON_SM}
+            onClick={() => saveCsv(periodCsv(data.rows, bucket, showSpend), `performance-by-${bucket}`)}
+          >
+            <Download aria-hidden className="h-3.5 w-3.5" />
+            {COPY.download}
+          </button>
           {data.spend_withheld === "no_billing_access" ? (
             <p className="text-meta text-ink-muted">{COPY.spendNoAccess}</p>
-          ) : data.spend_withheld === "one_agent" ? (
+          ) : data.spend_withheld === "one_agent" || data.spend_withheld === "narrowed" ? (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <p className="text-meta text-ink-muted">{COPY.spendWholeAccount}</p>
               <Link href={href(`/c/${slug}/billing?tab=usage`)} className={SECONDARY_BUTTON_SM}>
@@ -132,6 +141,27 @@ export function PeriodTable({ range }: { range: AnalyticsRange }) {
         </div>
       )}
     </Section>
+  );
+}
+
+/** The period table as CSV, oldest first, with spend only where the screen shows it. */
+export function periodCsv(rows: SummaryRow[], bucket: SummaryBucket, withSpend: boolean): string {
+  const headers = [bucket === "day" ? "Day" : bucket === "week" ? "Week" : "Month", "Calls", "Answered", "New leads"];
+  return tableCsv(
+    withSpend ? [...headers, "Spent (INR)"] : headers,
+    rows.map((row) => {
+      const base = [rowLabel(row, bucket), String(row.calls), String(row.answered), String(row.leads)];
+      return withSpend ? [...base, row.spent_inr ?? ""] : base;
+    }),
+  );
+}
+
+/** Outcome and agent groups as CSV. People are not offered: their names leave only
+ *  through the Leads export, which is the owner's and is audited. */
+export function groupsCsv(groups: CallGroup[], by: Exclude<CallGroupBy, "caller">): string {
+  return tableCsv(
+    [by === "outcome" ? "Outcome" : "Agent", "Calls", "Answered"],
+    groups.map((group) => [groupName(group, by), String(group.calls), String(group.answered)]),
   );
 }
 
@@ -249,6 +279,17 @@ export function CallGroupsTable({ range }: { range: AnalyticsRange }) {
                 }
               />
             ) : (
+              <>
+              {by !== "caller" ? (
+                <button
+                  type="button"
+                  className={SECONDARY_BUTTON_SM}
+                  onClick={() => saveCsv(groupsCsv(data.groups, by), `calls-by-${by}`)}
+                >
+                  <Download aria-hidden className="h-3.5 w-3.5" />
+                  {COPY.download}
+                </button>
+              ) : null}
               <DataTable
                 rows={data.groups}
                 columns={columns}
@@ -260,6 +301,7 @@ export function CallGroupsTable({ range }: { range: AnalyticsRange }) {
                     : undefined
                 }
               />
+              </>
             )}
           </>
         )}

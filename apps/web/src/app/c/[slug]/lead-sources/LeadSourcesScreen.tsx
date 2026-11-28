@@ -6,7 +6,7 @@ import { useActionFeedback } from "@/components/arc/feedback";
 import { PageHeader } from "@/components/console/pageHeader";
 import { PRIMARY_BUTTON, ProblemNotice, RestrictionNote } from "@/components/ui";
 import { useAgents } from "@/lib/api/agents";
-import { useWriteAccess } from "@/lib/api/hooks";
+import { useMe, useWriteAccess } from "@/lib/api/hooks";
 import {
   useCreateLeadSource,
   useIngestActivity,
@@ -35,6 +35,7 @@ import { DeliveryLog } from "./DeliveryLog";
 import { HeldLeads } from "./HeldLeads";
 import { MetaDrawer } from "./MetaDrawer";
 import { RotateDrawer } from "./RotateDrawer";
+import { SpeedToLead } from "./SpeedToLead";
 import { SourcesList } from "./SourcesList";
 import { TestLeadDrawer } from "./TestLeadDrawer";
 import { useLeadSourcesCopilot } from "./copilot";
@@ -72,6 +73,9 @@ export function LeadSourcesScreen() {
   const held = useHeldLeads(session);
   const release = useReleaseHeldLead(session);
   const drop = useDropHeldLead(session);
+  // The timing reads calls, so it shows only to a member who may read them.
+  const me = useMe(session);
+  const readsCalls = me.data?.permissions.includes("calls:read") === true;
 
   /*
    * Each action's state is drawn on its own button. Every one of them also has a place on
@@ -195,8 +199,11 @@ export function LeadSourcesScreen() {
       <RestrictionNote reason={write.reason} />
       {setActive.error != null && <ProblemNotice error={setActive.error} />}
 
-      {/* What needs a decision first, then the sources, then the settings folded into
-          rows: the five-part plan used to fill a phone screen before any source showed. */}
+      {/* The proof that leads are called at once, then what needs a decision, then the
+          sources, then the settings folded into rows: the five-part plan used to fill a
+          phone screen before any source showed. */}
+      {readsCalls ? <SpeedToLead session={session} /> : null}
+
       <HeldLeads
         held={held}
         holding={plan.data?.after_hours === "hold"}
