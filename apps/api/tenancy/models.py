@@ -298,6 +298,10 @@ class Organization(PKMixin, TimestampMixin, Base):
         Boolean, nullable=False, server_default=false()
     )
     owner_digest_sent_on: Mapped[date | None] = mapped_column(Date)
+    #: When it goes (D-1048): `evening` at 20:58 IST with the day so far, or `morning` at
+    #: 08:00 IST with the day before. The claim above keys on the day summarised, so moving
+    #: between the two never sends one day twice.
+    owner_digest_slot: Mapped[str] = mapped_column(Text, nullable=False, server_default="evening")
     #: THE ACCOUNT'S OUTBOUND IS SERVICE/TRANSACTIONAL, AND THE GATE ENFORCES IT (D-624).
     #:
     #: ⚠ **THIS COLUMN EXISTS BECAUSE A BACKSTOP WAS REMOVED, AND IT IS THE ONLY THING THAT

@@ -3986,6 +3986,9 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # (D-869): the account's own state, gone with it.
         await session.execute(text("DELETE FROM announcement_dismissals"))
         await session.execute(text("DELETE FROM notification_reads"))
+        # Alert choices and the alert gate's record (D-1048): ids and our own sentences.
+        await session.execute(text("DELETE FROM notification_preferences"))
+        await session.execute(text("DELETE FROM notification_deliveries"))
         # Requests for more calls at once: the account's own asks and our answers.
         await session.execute(text("DELETE FROM call_line_requests"))
         # Pip's notes (D-936): ids and counts about this account, gone with it.

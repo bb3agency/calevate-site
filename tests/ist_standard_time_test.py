@@ -184,6 +184,7 @@ BORN_IST_SLOTS: dict[str, tuple[int, int, str]] = {
     "cron:sweep_business_copies": (10, 44, "D-827"),
     "cron:sweep_hot_facts": (4, 31, "D-896"),
     "cron:send_owner_digests": (20, 58, "D-944"),
+    "cron:send_morning_digests": (8, 2, "D-1048"),
     "cron:distil_copilot_memories": (3, 25, "D-982"),
     "cron:write_weekly_summaries": (7, 50, "D-1044"),
 }

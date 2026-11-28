@@ -5689,6 +5689,56 @@
         "title": "AlertEpisode",
         "type": "object"
       },
+      "AlertKindOut": {
+        "additionalProperties": false,
+        "properties": {
+          "always": {
+            "title": "Always",
+            "type": "boolean"
+          },
+          "cells": {
+            "additionalProperties": {
+              "enum": [
+                "on",
+                "off",
+                "always",
+                "none"
+              ],
+              "type": "string"
+            },
+            "title": "Cells",
+            "type": "object"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "why": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Why"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "always",
+          "why",
+          "cells"
+        ],
+        "title": "AlertKindOut",
+        "type": "object"
+      },
       "AlertOptInOut": {
         "additionalProperties": false,
         "description": "Never the number. `status: \"none\"` means this person has never been asked, which\nis a 200 and the normal state of the world, not a 404.",
@@ -5771,6 +5821,94 @@
           "delivery_unavailable_reason"
         ],
         "title": "AlertOptInOut",
+        "type": "object"
+      },
+      "AlertPreferencesIn": {
+        "additionalProperties": false,
+        "properties": {
+          "daily_cap": {
+            "default": 12,
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Daily Cap",
+            "type": "integer"
+          },
+          "off": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 48,
+            "title": "Off",
+            "type": "array"
+          },
+          "quiet_enabled": {
+            "default": false,
+            "title": "Quiet Enabled",
+            "type": "boolean"
+          },
+          "quiet_end_hour": {
+            "default": 8,
+            "maximum": 23.0,
+            "minimum": 0.0,
+            "title": "Quiet End Hour",
+            "type": "integer"
+          },
+          "quiet_start_hour": {
+            "default": 21,
+            "maximum": 23.0,
+            "minimum": 0.0,
+            "title": "Quiet Start Hour",
+            "type": "integer"
+          }
+        },
+        "title": "AlertPreferencesIn",
+        "type": "object"
+      },
+      "AlertPreferencesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "account_editable": {
+            "title": "Account Editable",
+            "type": "boolean"
+          },
+          "daily_cap": {
+            "title": "Daily Cap",
+            "type": "integer"
+          },
+          "governs_account": {
+            "title": "Governs Account",
+            "type": "boolean"
+          },
+          "kinds": {
+            "items": {
+              "$ref": "#/components/schemas/AlertKindOut"
+            },
+            "title": "Kinds",
+            "type": "array"
+          },
+          "quiet_enabled": {
+            "title": "Quiet Enabled",
+            "type": "boolean"
+          },
+          "quiet_end_hour": {
+            "title": "Quiet End Hour",
+            "type": "integer"
+          },
+          "quiet_start_hour": {
+            "title": "Quiet Start Hour",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kinds",
+          "quiet_enabled",
+          "quiet_start_hour",
+          "quiet_end_hour",
+          "daily_cap",
+          "governs_account",
+          "account_editable"
+        ],
+        "title": "AlertPreferencesOut",
         "type": "object"
       },
       "AlertReport": {
@@ -23765,6 +23903,21 @@
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
+          },
+          "slot": {
+            "anyOf": [
+              {
+                "enum": [
+                  "evening",
+                  "morning"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot"
           }
         },
         "required": [
@@ -23785,6 +23938,14 @@
             "title": "Enabled",
             "type": "boolean"
           },
+          "slot": {
+            "enum": [
+              "evening",
+              "morning"
+            ],
+            "title": "Slot",
+            "type": "string"
+          },
           "whatsapp": {
             "title": "Whatsapp",
             "type": "boolean"
@@ -23792,6 +23953,7 @@
         },
         "required": [
           "enabled",
+          "slot",
           "email_addresses",
           "whatsapp"
         ],
@@ -43873,7 +44035,11 @@
               "announcement",
               "plan",
               "call_lines",
-              "campaign"
+              "campaign",
+              "posted",
+              "milestone",
+              "reminder",
+              "opt_out"
             ],
             "title": "Source",
             "type": "string"
@@ -46071,7 +46237,8 @@
             "enum": [
               "not_answered",
               "hung_up_early",
-              "asked"
+              "asked",
+              "message"
             ],
             "title": "Reason",
             "type": "string"
@@ -55349,6 +55516,38 @@
           "max_days"
         ],
         "title": "RunwayOut",
+        "type": "object"
+      },
+      "SampleIn": {
+        "additionalProperties": false,
+        "properties": {
+          "channel": {
+            "enum": [
+              "email",
+              "whatsapp"
+            ],
+            "title": "Channel",
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel"
+        ],
+        "title": "SampleIn",
+        "type": "object"
+      },
+      "SampleOut": {
+        "additionalProperties": false,
+        "properties": {
+          "queued": {
+            "title": "Queued",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "queued"
+        ],
+        "title": "SampleOut",
         "type": "object"
       },
       "SaveIn": {
@@ -108743,7 +108942,7 @@
         "x-calevate-permission": "org:read"
       },
       "put": {
-        "description": "Off for every account until its owner turns it on. Once a day in the evening (IST) it sends the day's calls, leads, spend and waiting call-backs by email, and by WhatsApp where the owner opted in to WhatsApp alerts.",
+        "description": "Off for every account until its owner turns it on. Once a day, in the evening (the day so far) or the morning (the day before), IST, it sends calls, leads, spend and waiting call-backs by email, and by WhatsApp where the owner opted in to WhatsApp alerts.",
         "operationId": "set_daily_summary_v1_notifications_daily_summary_put",
         "requestBody": {
           "content": {
@@ -108778,6 +108977,110 @@
           "notifications"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/notifications/preferences": {
+      "get": {
+        "operationId": "get_preferences_v1_notifications_preferences_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertPreferencesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "This person's alert table: what reaches the bell, this computer, email, WhatsApp",
+        "tags": [
+          "notifications"
+        ],
+        "x-calevate-permission": "leads:read"
+      },
+      "put": {
+        "description": "Always-on alerts cannot be switched off (`alert_always_on`). Email, WhatsApp, quiet hours and the daily limit are the account owner's (`alert_owner_only`).",
+        "operationId": "put_preferences_v1_notifications_preferences_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertPreferencesIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertPreferencesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Save this person's alert table, quiet hours and daily email limit",
+        "tags": [
+          "notifications"
+        ],
+        "x-calevate-permission": "leads:write"
+      }
+    },
+    "/v1/notifications/preferences/sample": {
+      "post": {
+        "description": "Email goes to the signed-in person's own address. WhatsApp goes only to the owner who agreed to WhatsApp alerts. At most one per channel every few minutes.",
+        "operationId": "send_sample_v1_notifications_preferences_sample_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SampleIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SampleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Send me a sample alert on one channel, marked as a sample",
+        "tags": [
+          "notifications"
+        ],
+        "x-calevate-permission": "leads:write"
       }
     },
     "/v1/notifications/seen": {

@@ -12,6 +12,7 @@ import {
 } from "@/lib/api/whatsappAlerts";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
+import { ALERTS_PAGE_READS } from "./fixtures/alertPreferences";
 import {
   problem,
   renderClientPage,
@@ -91,11 +92,13 @@ function clientRoutes(
 /** The team half of the hot-lead list on the same screen (D-967), empty. */
 const NO_TEAM: Routes = {
   "/v1/team-alerts/contacts": { contacts: [], max_contacts: 10, whatsapp_accounts: [] },
+  // The alert table and the per-job answer alerts on the same screen (D-1048).
+  ...ALERTS_PAGE_READS,
 };
 
 /** The daily summary switch on the same screen (D-944), off. */
 const DAILY_SUMMARY_OFF: Routes = {
-  [DAILY_SUMMARY_PATH]: { enabled: false, email_addresses: 1, whatsapp: false },
+  [DAILY_SUMMARY_PATH]: { enabled: false, slot: "evening", email_addresses: 1, whatsapp: false },
 };
 
 describe("the client's own WhatsApp alert opt-in", () => {

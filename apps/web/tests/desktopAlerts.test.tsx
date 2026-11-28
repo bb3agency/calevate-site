@@ -1,6 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { computerAllows, type AlertPreferences } from "@/lib/api/alertPreferences";
 import type { AttentionKind, AttentionQueue } from "@/lib/api/attention";
 import { desktopAlertState, turnOnDesktopAlerts, useDesktopAlerts } from "@/lib/desktopAlerts";
 
@@ -95,6 +96,20 @@ describe("desktop alerts", () => {
       initialProps: { q: queue(["a"]) },
     });
     rerender({ q: { ...queue(["c"], "call_failed"), items: [...queue(["d"], "campaign_stalled").items, ...queue(["c"], "call_failed").items] } });
+    expect(created.map((n) => n.title)).toEqual(["Item c"]);
+  });
+
+  it("leaves out a row whose Computer cell the person switched off (D-1048)", async () => {
+    permission = "granted";
+    await turnOnDesktopAlerts("acme");
+    const prefs = {
+      kinds: [{ key: "hot_lead", label: "", always: false, why: null, cells: { computer: "off" } }],
+    } as unknown as AlertPreferences;
+    const allows = (kind: AttentionKind) => computerAllows(prefs, kind);
+    const { rerender } = renderHook(({ q }) => useDesktopAlerts("acme", q, (p) => p, allows), {
+      initialProps: { q: queue(["a"]) },
+    });
+    rerender({ q: { ...queue([]), items: [...queue(["b"]).items, ...queue(["c"], "call_failed").items] } });
     expect(created.map((n) => n.title)).toEqual(["Item c"]);
   });
 });

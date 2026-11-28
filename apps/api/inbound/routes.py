@@ -835,7 +835,7 @@ class OwedCallerOut(_Out):
     #: Their latest call to the line: Make a call follows it up through the call-back door.
     call_id: UUID
     at: datetime
-    reason: Literal["not_answered", "hung_up_early", "asked"]
+    reason: Literal["not_answered", "hung_up_early", "asked", "message"]
     tries: int
     name: str | None
     phone_e164: str

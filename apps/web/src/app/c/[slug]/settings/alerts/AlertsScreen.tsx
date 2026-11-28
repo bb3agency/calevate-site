@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 
+import { AlertTable } from "./AlertTable";
 import { DailySummary } from "./DailySummary";
 import { DesktopAlerts } from "./DesktopAlerts";
+import { JobAlertsList } from "./JobAlertsList";
 import { TeamList } from "./TeamList";
 
 import { useActionFeedback } from "@/components/arc/feedback";
@@ -130,7 +132,7 @@ export function AlertsScreen() {
 
   return (
     <div className="max-w-2xl space-y-10 pb-12">
-      <PageHeader description={`${heading}, and your daily summary.`} />
+      <PageHeader description={`${heading}, where each alert reaches you, and your daily summary.`} />
 
       <RestrictionNote reason={write.reason} />
 
@@ -233,6 +235,8 @@ export function AlertsScreen() {
         </p>
       </Section>
 
+      <AlertTable />
+      <JobAlertsList />
       <DailySummary />
       <DesktopAlerts />
     </div>

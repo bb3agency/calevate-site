@@ -567,6 +567,11 @@ TENANT_TABLES = [
     # account's own state and FORCE-RLS'd like every other one.
     "announcement_dismissals",
     "notification_reads",
+    # D-1048 (migration c7d3a9e5f218): each person's alert table, quiet hours and daily cap;
+    # and what the alert gate decided for each owner alert (sent, held, folded, released) plus
+    # the bell items a job posts. Our own sentences and ids only, never a caller's details.
+    "notification_preferences",
+    "notification_deliveries",
     # Pip's notes (D-936, migration e5b9d3f7a248): what the hourly detectors noticed in an
     # account, one row per episode, ids and counts only. NOT append-only: a note is seen,
     # dismissed, acted on and resolved. DELETEd by tenant erasure; notes older than

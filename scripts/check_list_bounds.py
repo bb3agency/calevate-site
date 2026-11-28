@@ -243,8 +243,18 @@ _HOLDER_DIAGNOSIS = BoundedByConstruction(
     )
 )
 
+#: One person's alert table (D-1048).
+_ALERT_PREFERENCES = BoundedByConstruction(
+    by=(
+        "one row per `notifications/preferences.KINDS` entry (twelve), each with one cell per "
+        "`preferences.CHANNELS` entry (four); a fixed catalogue, not anybody's data."
+    )
+)
+
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
+    "GET /v1/notifications/preferences": _ALERT_PREFERENCES,
+    "PUT /v1/notifications/preferences": _ALERT_PREFERENCES,
     "GET /v1/agents/{agent_id}/call-mistakes": _CALL_MISTAKES,
     "GET /v1/ops/call-mistakes": _CALL_MISTAKES,
     "POST /v1/follow-ups": _FOLLOW_UP,

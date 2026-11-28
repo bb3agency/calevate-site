@@ -6,9 +6,15 @@ Two sources, merged newest first:
   refused to do quietly, hot leads and low credit included;
 * the announcements this account is shown (`announcements/service.active_for`).
 
-Nothing is copied into a notifications table: a second store of the same facts would drift
-from the queue the attention screen reads. What is stored is one high-water mark per person
-(`notification_reads`), and "unread" is "newer than the mark".
+Nothing the queue already holds is copied into a notifications table: a second store of the
+same facts would drift from the queue the attention screen reads. What is stored is one
+high-water mark per person (`notification_reads`), and "unread" is "newer than the mark".
+
+D-1048 adds the bell's own sources (`notifications/sources.py`): items a job posted (a
+finished campaign), milestones, reminders to call people and opt-outs, and it tells a "needs
+you" call apart into a call-back request and a message for the owner. Each person's bell
+column of the alert table (`notifications/preferences.py`) decides which rows they see; a kind
+that is not a row of that table is on every bell.
 """
 
 from __future__ import annotations
@@ -29,12 +35,24 @@ from apps.api.campaigns import improve
 from apps.api.core.schemas import Instant
 from apps.api.crm.attention import attention_queue
 from apps.api.db.base import uuid7
+from apps.api.notifications import preferences, sources
 from apps.api.tenancy import call_line_requests
 from apps.api.tenancy.call_line_requests import LineRequest
+from apps.api.tenancy.caller_words import caller_words_for
 
 MAX_FEED: Final = 100
 
-NotificationSource = Literal["attention", "announcement", "plan", "call_lines", "campaign"]
+NotificationSource = Literal[
+    "attention",
+    "announcement",
+    "plan",
+    "call_lines",
+    "campaign",
+    "posted",
+    "milestone",
+    "reminder",
+    "opt_out",
+]
 
 #: Realm-relative: the Phone numbers screen, where the "Calls at once" tile is.
 CALL_LINES_HREF: Final = "/phone-number"
@@ -55,6 +73,13 @@ _ATTENTION_TONE: Final[dict[str, Tone]] = {
     "forwarded_line_quiet": "warning",
     "caller_memory_paused": "warning",
     "rights_request_due": "warning",
+}
+
+#: A "needs you" call, told apart (W4.3): what it becomes on the bell and the end of its title.
+_NEEDS_YOU_SUFFIX: Final = " needs you"
+_SPLIT: Final[dict[str, tuple[str, str]]] = {
+    "callback_asked": ("callback_asked", " asked for a call back"),
+    "message_left": ("message_left", " left you a message"),
 }
 
 
@@ -196,24 +221,43 @@ async def feed(
         session, tenant_id=tenant_id, limit=announcements.MAX_ACTIVE
     )
 
+    prefs = await preferences.read_for(session, user_id)
+
     def unread(at: datetime) -> bool:
         return mark is None or at > mark
 
-    items = [
-        NotificationOut(
-            id=f"attention:{item['kind']}:{item['id']}",
-            source="attention",
-            kind=str(item["kind"]),
-            tone=_ATTENTION_TONE.get(str(item["kind"]), "warning"),
-            title=str(item["title"]),
-            detail=str(item["detail"]) if item.get("detail") else None,
-            href=item.get("href"),
-            link_label=None,
-            occurred_at=item["occurred_at"],
-            unread=unread(item["occurred_at"]),
+    def on_bell(kind: str) -> bool:
+        return prefs.allows(kind, "bell")
+
+    asked = await sources.needs_you_split(
+        session,
+        [UUID(str(i["id"])) for i in queue["items"] if i["kind"] == "call_needs_you"],
+    )
+    items: list[NotificationOut] = []
+    for item in queue["items"]:
+        kind, title = str(item["kind"]), str(item["title"])
+        row = preferences.ATTENTION_KIND.get(kind)
+        if kind == "call_needs_you":
+            row = "callback_asked" if UUID(str(item["id"])) in asked else "message_left"
+            kind, suffix = _SPLIT[row]
+            if title.endswith(_NEEDS_YOU_SUFFIX):
+                title = title.removesuffix(_NEEDS_YOU_SUFFIX) + suffix
+        if row is not None and not on_bell(row):
+            continue
+        items.append(
+            NotificationOut(
+                id=f"attention:{item['kind']}:{item['id']}",
+                source="attention",
+                kind=kind,
+                tone=_ATTENTION_TONE.get(str(item["kind"]), "warning"),
+                title=title,
+                detail=str(item["detail"]) if item.get("detail") else None,
+                href=item.get("href"),
+                link_label=None,
+                occurred_at=item["occurred_at"],
+                unread=unread(item["occurred_at"]),
+            )
         )
-        for item in queue["items"]
-    ]
     items += [
         NotificationOut(
             id=f"announcement:{a.id}",
@@ -264,6 +308,35 @@ async def feed(
             unread=unread(notice.occurred_at),
         )
         for notice in await improve.recent_notices(session, limit=limit)
+    ]
+    words = await caller_words_for(session, tenant_id)
+    own: list[tuple[NotificationSource, sources.BellItem]] = [
+        ("posted", b) for b in await sources.posted(session, limit=limit)
+    ]
+    if on_bell("milestone"):
+        own += [
+            ("milestone", b)
+            for b in await sources.milestones(session, words=words, now=datetime.now(UTC))
+        ]
+    if on_bell("reminder"):
+        own += [("reminder", b) for b in await sources.reminders(session, words=words)]
+    if on_bell("opt_out"):
+        own += [("opt_out", b) for b in await sources.opt_outs(session)]
+    items += [
+        NotificationOut(
+            id=b.id,
+            source=source,
+            kind=b.kind,
+            tone=b.tone,
+            title=b.title,
+            detail=b.detail,
+            href=b.href,
+            link_label=None,
+            occurred_at=b.occurred_at,
+            unread=unread(b.occurred_at),
+        )
+        for source, b in own
+        if on_bell(b.kind)
     ]
     items.sort(key=lambda n: (n.occurred_at, n.id), reverse=True)
     items = items[:limit]

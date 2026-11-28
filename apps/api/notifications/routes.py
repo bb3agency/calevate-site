@@ -8,7 +8,8 @@ account has no mark there, and the call is answered without writing one.
 
 from __future__ import annotations
 
-from typing import Annotated, Final
+from datetime import UTC, datetime
+from typing import Annotated, Final, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -19,15 +20,24 @@ from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
-from apps.api.core.rbac import permission_meta
+from apps.api.core.errors import ProblemError
+from apps.api.core.rbac import permission_meta, role_has
 from apps.api.core.settings import get_settings
-from apps.api.notifications import daily_summary, service
+from apps.api.notifications import daily_summary, preferences, service
+from apps.api.notifications.preferences import AlertPreferencesIn, AlertPreferencesOut
 from apps.api.notifications.service import NotificationFeedOut, SeenIn, SeenOut
+from apps.api.reliability.service import enqueue_outbox_once
 from apps.workers.account_closure import account_recipients
 from apps.workers.whatsapp import resolve_destination
 
 #: The audit action the switch writes, here and from Pip's `account_switch_set`.
 DAILY_SUMMARY_AUDIT: Final = "organization.daily_summary_set"
+ALERT_PREFERENCES_AUDIT: Final = "notification.preferences_set"
+#: The worker job a "Send me a sample" queues (`apps/workers/notifications.send_alert_sample`).
+SAMPLE_JOB: Final = "send_alert_sample"
+#: One sample per person per channel in this many minutes; a second press is answered
+#: `queued: false` rather than sending again.
+SAMPLE_EVERY_MINUTES: Final = 5
 
 router = APIRouter(prefix="/v1/notifications", tags=["notifications"])
 
@@ -73,10 +83,115 @@ async def mark_seen(payload: SeenIn, session: Session, principal: Worker) -> See
     )
 
 
+def _may_manage(principal: Principal) -> bool:
+    return principal.role is not None and role_has(principal.role, "org:manage")
+
+
+def _person(principal: Principal) -> UUID:
+    person = principal.client_user_id
+    if person is None:
+        raise ProblemError.forbidden("Alert choices belong to a person signed in to this account.")
+    return person
+
+
+@router.get(
+    "/preferences",
+    response_model=AlertPreferencesOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="This person's alert table: what reaches the bell, this computer, email, WhatsApp",
+)
+async def get_preferences(session: Session, principal: Reader) -> AlertPreferencesOut:
+    return await preferences.view(
+        session, user_id=principal.client_user_id, may_manage=_may_manage(principal)
+    )
+
+
+@router.put(
+    "/preferences",
+    response_model=AlertPreferencesOut,
+    openapi_extra=permission_meta("leads:write"),
+    summary="Save this person's alert table, quiet hours and daily email limit",
+    description=(
+        "Always-on alerts cannot be switched off (`alert_always_on`). Email, WhatsApp, quiet "
+        "hours and the daily limit are the account owner's (`alert_owner_only`)."
+    ),
+)
+async def put_preferences(
+    payload: AlertPreferencesIn, session: Session, request: Request, principal: Worker
+) -> AlertPreferencesOut:
+    assert principal.tenant_id is not None
+    person = _person(principal)
+    out = await preferences.save(
+        session,
+        tenant_id=principal.tenant_id,
+        user_id=person,
+        may_manage=_may_manage(principal),
+        payload=payload,
+    )
+    await write_audit(
+        session,
+        action=ALERT_PREFERENCES_AUDIT,
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="user",
+        object_id=str(person),
+        ip=client_request_ip(request),
+        summary={
+            "off": str(len(payload.off)),
+            "quiet_enabled": payload.quiet_enabled,
+            "daily_cap": payload.daily_cap,
+        },
+    )
+    return out
+
+
+class SampleIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    channel: Literal["email", "whatsapp"]
+
+
+class SampleOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: False when a sample on this channel was already sent in the last few minutes.
+    queued: bool
+
+
+@router.post(
+    "/preferences/sample",
+    response_model=SampleOut,
+    openapi_extra=permission_meta("leads:write"),
+    summary="Send me a sample alert on one channel, marked as a sample",
+    description=(
+        "Email goes to the signed-in person's own address. WhatsApp goes only to the owner "
+        "who agreed to WhatsApp alerts. At most one per channel every few minutes."
+    ),
+)
+async def send_sample(payload: SampleIn, session: Session, principal: Worker) -> SampleOut:
+    assert principal.tenant_id is not None
+    person = _person(principal)
+    bucket = int(datetime.now(UTC).timestamp() // (SAMPLE_EVERY_MINUTES * 60))
+    queued = await enqueue_outbox_once(
+        session,
+        job=SAMPLE_JOB,
+        payload={
+            "tenant_id": str(principal.tenant_id),
+            "user_id": str(person),
+            "channel": payload.channel,
+        },
+        dedupe_key=f"alert-sample:{person}:{payload.channel}:{bucket}",
+    )
+    return SampleOut(queued=queued is not None)
+
+
 class DailySummaryIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool
+    #: `evening` (around 9 pm, the day so far) or `morning` (8 am, the day before). Left out,
+    #: the current choice stays.
+    slot: daily_summary.Slot | None = None
 
 
 class DailySummaryOut(BaseModel):
@@ -85,6 +200,7 @@ class DailySummaryOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool
+    slot: daily_summary.Slot
     #: Addresses the email goes to (owners and the billing address).
     email_addresses: int
     #: WhatsApp also carries it: our WhatsApp is switched on and the owner opted in.
@@ -95,6 +211,7 @@ async def _daily_summary_out(session: AsyncSession, tenant_id: UUID) -> DailySum
     destination = await resolve_destination(session, tenant_id)
     return DailySummaryOut(
         enabled=await daily_summary.read_switch(session),
+        slot=await daily_summary.read_slot(session),
         email_addresses=len(await account_recipients(session, tenant_id=tenant_id)),
         whatsapp=get_settings().whatsapp_enabled
         and destination is not None
@@ -122,9 +239,10 @@ async def get_daily_summary(
     openapi_extra=permission_meta("org:manage"),
     summary="Turn the owner's daily summary on or off",
     description=(
-        "Off for every account until its owner turns it on. Once a day in the evening (IST) "
-        "it sends the day's calls, leads, spend and waiting call-backs by email, and by "
-        "WhatsApp where the owner opted in to WhatsApp alerts."
+        "Off for every account until its owner turns it on. Once a day, in the evening (the "
+        "day so far) or the morning (the day before), IST, it sends calls, leads, spend and "
+        "waiting call-backs by email, and by WhatsApp where the owner opted in to WhatsApp "
+        "alerts."
     ),
 )
 async def set_daily_summary(
@@ -135,6 +253,8 @@ async def set_daily_summary(
 ) -> DailySummaryOut:
     assert principal.tenant_id is not None
     changed = await daily_summary.write_switch(session, enabled=payload.enabled)
+    if payload.slot is not None:
+        changed = await daily_summary.write_slot(session, slot=payload.slot) or changed
     await write_audit(
         session,
         action=DAILY_SUMMARY_AUDIT,
@@ -143,9 +263,13 @@ async def set_daily_summary(
         object_type="organization",
         object_id=str(principal.tenant_id),
         ip=client_request_ip(request),
-        summary={"owner_digest_enabled": payload.enabled, "changed": changed},
+        summary={
+            "owner_digest_enabled": payload.enabled,
+            "slot": payload.slot or "unchanged",
+            "changed": changed,
+        },
     )
     return await _daily_summary_out(session, principal.tenant_id)
 
 
-__all__ = ["DAILY_SUMMARY_AUDIT", "router"]
+__all__ = ["ALERT_PREFERENCES_AUDIT", "DAILY_SUMMARY_AUDIT", "SAMPLE_JOB", "router"]

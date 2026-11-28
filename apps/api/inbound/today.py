@@ -47,7 +47,9 @@ OWED_WINDOW_DAYS: Final = 7
 #: Most rows the owed list returns; the call log holds the rest.
 OWED_SHOWN: Final = 50
 
-Reason = Literal["not_answered", "hung_up_early", "asked"]
+#: `asked`: the caller asked for a call back (or one was booked). `message`: any other call
+#: that left the business something to do, a message for the owner (D-1048, W4.3).
+Reason = Literal["not_answered", "hung_up_early", "asked", "message"]
 
 _REAL_INBOUND: Final = (
     "c.direction = 'inbound' AND NOT c.trial_call AND NOT c.paid_test_call "
@@ -76,7 +78,8 @@ def _owed_sql(*, one_line: bool) -> str:
     return f"""
 WITH line_calls AS (
     SELECT c.id, c.inbound_line_id, {CALL_AT} AS called_at, c.status, c.outcome_tag,
-           c.follow_up_state, {_PERSON} AS phone, l.name AS lead_name
+           c.follow_up_state, {_PERSON} AS phone, l.name AS lead_name,
+           c.callback_requested
     FROM calls c LEFT JOIN leads l ON l.id = c.lead_id
     WHERE {line} AND {_REAL_INBOUND} AND {CALL_AT} >= :since
       AND c.status NOT IN ('queued', 'ringing', 'in_progress')
@@ -87,7 +90,7 @@ WITH line_calls AS (
     ORDER BY inbound_line_id, phone, called_at DESC, id DESC
 )
 SELECT o.id, o.called_at, o.status, o.outcome_tag, o.phone, o.lead_name, o.tries,
-       o.inbound_line_id
+       o.inbound_line_id, o.callback_requested
 FROM latest o
 WHERE o.follow_up_state IS DISTINCT FROM 'resolved'
   AND (o.status = ANY(:not_reached) OR o.outcome_tag = ANY(:owed_outcomes))
@@ -195,10 +198,18 @@ async def lines_today(
     return day, out
 
 
-def _reason(status: str, outcome: str | None) -> Reason:
+def _reason(
+    status: str, outcome: str | None, callback_requested: bool | None, booked: bool = False
+) -> Reason:
+    """A "needs you" call is a call-back when the caller asked for one or one is booked for
+    them, and otherwise a message: something they want the business to do."""
     if status in NOT_REACHED:
         return "not_answered"
-    return "hung_up_early" if outcome == HUNG_UP else "asked"
+    if outcome == HUNG_UP:
+        return "hung_up_early"
+    if outcome == "needs_you" and not callback_requested and not booked:
+        return "message"
+    return "asked"
 
 
 async def owed(
@@ -214,12 +225,12 @@ async def owed(
         Owed(
             call_id=UUID(str(r[0])),
             at=r[1],
-            reason=_reason(str(r[2]), r[3]),
+            reason=_reason(str(r[2]), r[3], r[8], r[9] is not None),
             tries=int(r[6]),
             name=str(r[5]) if r[5] else None,
             phone_e164=str(r[4]),
-            call_back_at=r[8],
-            calling=bool(r[9]),
+            call_back_at=r[9],
+            calling=bool(r[10]),
         )
         for r in rows
     ]

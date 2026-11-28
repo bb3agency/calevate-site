@@ -5,7 +5,8 @@
  * after they end. Exactly what is ticked: no outcome is fixed on, because a business's best
  * outcome is not always a sale ("App installed"). Until the owner saves, the server sends every
  * positive outcome of the agent ticked (`saved` false). The answers are the job's own "What it
- * notes" details, so they sit beside that card on the same page. Who hears is Settings → Alerts;
+ * notes" details, so they sit beside that card on the same page, and Settings → Alerts lists
+ * every job's rule again (`JobAlertsBody`, D-1048). Who hears is Settings → Alerts;
  * messaging the team during a call is the agent's own switch.
  */
 
@@ -23,9 +24,6 @@ import { FoldSection } from "./FoldSection";
 const NOUN: Record<AlertJobKind, string> = { campaign: "campaign", line: "line" };
 
 export function JobAlerts({ kind, jobId }: { kind: AlertJobKind; jobId: string }) {
-  const { session } = useClientRealm();
-  const rule = useJobTeamAlert(session, kind, jobId);
-  const write = useWriteAccess(session, "org:manage", "change which calls you are alerted about");
   return (
     <FoldSection
       id={jobAlertsAnchor(kind)}
@@ -34,11 +32,35 @@ export function JobAlerts({ kind, jobId }: { kind: AlertJobKind; jobId: string }
       hint="Which calls you and your team hear about."
       info={`Only this ${NOUN[kind]}'s calls. Who hears is set once, on Settings, Alerts.`}
     >
+      <JobAlertsBody kind={kind} jobId={jobId} />
+    </FoldSection>
+  );
+}
+
+/**
+ * The rule itself, without the fold: the campaign and line pages put it in their Alerts
+ * fold, and Settings, Alerts lists every campaign's and line's under one heading (D-1048,
+ * W5.3) so the owner can set "tell me when an answer is X" in one place.
+ */
+export function JobAlertsBody({
+  kind,
+  jobId,
+  showWhoHears = true,
+}: {
+  kind: AlertJobKind;
+  jobId: string;
+  showWhoHears?: boolean;
+}) {
+  const { session } = useClientRealm();
+  const rule = useJobTeamAlert(session, kind, jobId);
+  const write = useWriteAccess(session, "org:manage", "change which calls you are alerted about");
+  return (
+    <>
       {rule.error != null && <ProblemNotice error={rule.error} onRetry={() => void rule.refetch()} />}
       {!rule.data && rule.error == null && <Skeleton rows={3} label="Loading alerts" />}
       {rule.data && (
         <div className="space-y-6">
-          <WhoHears team={rule.data.team_addresses} />
+          {showWhoHears ? <WhoHears team={rule.data.team_addresses} /> : null}
           <AlertsForm
             key={`${rule.data.on_outcomes.join()}|${JSON.stringify(rule.data.on_fields)}`}
             kind={kind}
@@ -49,7 +71,7 @@ export function JobAlerts({ kind, jobId }: { kind: AlertJobKind; jobId: string }
           />
         </div>
       )}
-    </FoldSection>
+    </>
   );
 }
 
@@ -86,7 +108,7 @@ function AlertsForm({
       className="space-y-6"
       onSubmit={(event) => {
         event.preventDefault();
-        save.mutate({
+        feedback.run({
           on_outcomes: outcomes,
           on_fields: Object.entries(fields)
             .filter(([, values]) => values.length > 0)

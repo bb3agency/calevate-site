@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from typing import Final
+from typing import Final, Literal
 from uuid import UUID
 
 from sqlalchemy import text
@@ -40,6 +40,11 @@ from apps.api.crm.lead_definition import BECAME_LEADS_SQL, GOAL_BAND, GOAL_STAGE
 from apps.api.crm.performance import CONNECTED_SQL
 from apps.api.tenancy.caller_words import CallerWords, caller_words_for
 from apps.workers.redaction import redact
+
+#: When the summary goes (D-1048): `evening` (20:58 IST) covers the day so far, `morning`
+#: (08:00 IST) the day before.
+Slot = Literal["evening", "morning"]
+SLOTS: Final[tuple[Slot, ...]] = ("evening", "morning")
 
 #: People who reached a goal and are waiting, named in the email.
 TOP_HOT_LEADS: Final = 3
@@ -73,6 +78,12 @@ class DailySummary:
     follow_ups_waiting: int
     #: What this business calls a lead; the platform's words until it is judged.
     words: CallerWords = field(default_factory=CallerWords)
+    slot: Slot = "evening"
+
+    @property
+    def when(self) -> str:
+        """The day the figures cover, as the owner reads it."""
+        return "yesterday" if self.slot == "morning" else "today"
 
     @property
     def dashboard_url(self) -> str:
@@ -127,7 +138,9 @@ _ORG_SQL: Final = text(
 )
 
 
-async def build_summary(session: AsyncSession, *, tenant_id: UUID, day: date) -> DailySummary:
+async def build_summary(
+    session: AsyncSession, *, tenant_id: UUID, day: date, slot: Slot = "evening"
+) -> DailySummary:
     """The day's figures, under the client's own RLS session."""
     org = (await session.execute(_ORG_SQL)).first()
     if org is None:
@@ -159,6 +172,7 @@ async def build_summary(session: AsyncSession, *, tenant_id: UUID, day: date) ->
         per_lead_inr=per_unit(spent, int(leads)),
         follow_ups_waiting=follow_ups,
         words=await caller_words_for(session, tenant_id),
+        slot=slot,
     )
 
 
@@ -186,12 +200,15 @@ def _new_leads(summary: DailySummary) -> str:
 
 
 def email_subject(summary: DailySummary) -> str:
-    return f"Today: {_count(summary.answered, 'call')} answered, {_new_leads(summary)}"
+    return (
+        f"{summary.when.capitalize()}: {_count(summary.answered, 'call')} answered, "
+        f"{_new_leads(summary)}"
+    )
 
 
 def email_lines(summary: DailySummary) -> list[str]:
     return [
-        f"{_count(summary.answered, 'call')} answered and {summary.missed} missed today.",
+        f"{_count(summary.answered, 'call')} answered and {summary.missed} missed {summary.when}.",
         f"{_new_leads(summary)}, {summary.hot_leads} of them reached a goal.",
         f"{_count(summary.follow_ups_waiting, 'call-back')} waiting for you.",
     ]
@@ -200,9 +217,9 @@ def email_lines(summary: DailySummary) -> list[str]:
 def email_facts(summary: DailySummary) -> list[tuple[str, str]]:
     words = summary.words
     facts = [
-        ("Spent today", display_inr(summary.spent_inr)),
+        (f"Spent {summary.when}", display_inr(summary.spent_inr)),
         (
-            f"Cost per {words.lead} today",
+            f"Cost per {words.lead} {summary.when}",
             display_inr(summary.per_lead_inr)
             if summary.per_lead_inr is not None
             else f"No {words.leads}",
@@ -252,16 +269,47 @@ async def write_switch(session: AsyncSession, *, enabled: bool) -> bool:
     return True
 
 
+async def read_slot(session: AsyncSession) -> Slot:
+    value = (
+        await session.execute(
+            text("SELECT owner_digest_slot FROM organizations WHERE deleted_at IS NULL")
+        )
+    ).scalar_one_or_none()
+    if value is None:
+        raise ProblemError.not_found("Organization")
+    return "morning" if value == "morning" else "evening"
+
+
+async def write_slot(session: AsyncSession, *, slot: Slot) -> bool:
+    """Set when the summary goes; True when it changed. The claim keys on the day summarised,
+    so a move between evening and morning never sends the same day twice."""
+    changed = (
+        await session.execute(
+            text(
+                "UPDATE organizations SET owner_digest_slot = :slot, updated_at = now() "
+                "WHERE deleted_at IS NULL AND owner_digest_slot IS DISTINCT FROM :slot "
+                "RETURNING id"
+            ),
+            {"slot": slot},
+        )
+    ).first()
+    return changed is not None
+
+
 __all__ = [
     "NAME_MAX",
+    "SLOTS",
     "TOP_HOT_LEADS",
     "DailySummary",
     "HotLead",
+    "Slot",
     "build_summary",
     "email_facts",
     "email_lines",
     "email_subject",
+    "read_slot",
     "read_switch",
     "whatsapp_variables",
+    "write_slot",
     "write_switch",
 ]

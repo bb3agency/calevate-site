@@ -1,6 +1,8 @@
 """Send each opted-in owner their daily summary (D-944, `notifications/daily_summary.py`).
 
-Once a day at `SEND_HOUR`:`SEND_MINUTE` IST. For each account with the switch on, the IST day
+Once a day, at the time the owner chose (D-1048): `evening` at `SEND_HOUR`:`SEND_MINUTE` IST
+with the day so far, or `morning` at `MORNING_HOUR`:`MORNING_MINUTE` IST with the day before.
+For each account with the switch on and that slot chosen, the IST day summarised
 is claimed with a compare-and-set on `organizations.owner_digest_sent_on` before anything is
 sent, so a doubled tick or a retry sends one summary; when nothing was delivered the claim is
 put back and the run raises `Retry`, which re-walks the list and reaches only the accounts
@@ -17,7 +19,7 @@ destination`), with the counts-only template `whatsapp_template_owner_digest`.
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Final
 from uuid import UUID
 
@@ -34,6 +36,7 @@ from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.notifications.daily_summary import (
     DailySummary,
+    Slot,
     build_summary,
     email_facts,
     email_lines,
@@ -52,18 +55,25 @@ log = get_logger(__name__)
 #: fee sweep's).
 SEND_HOUR: Final = 20
 SEND_MINUTE: Final = 58
+#: 08:02 IST: the owner's morning, the day before whole. :02 shares its minute with no other
+#: fleet-wide walk (`tests/job_registration_test.py` checks it).
+MORNING_HOUR: Final = 8
+MORNING_MINUTE: Final = 2
 #: Seconds before each retry of a run that left an account undelivered.
 RETRY_BACKOFF_S: Final = (300.0, 900.0)
 
-_OPTED_IN = (
-    "SELECT id FROM organizations WHERE deleted_at IS NULL AND owner_digest_enabled ORDER BY id"
+_OPTED_IN = text(
+    "SELECT id FROM organizations WHERE deleted_at IS NULL AND owner_digest_enabled "
+    "AND owner_digest_slot = :slot ORDER BY id"
 )
 #: The claim: only the first run of the day moves the stamp.
 _CLAIM = text(
     "UPDATE organizations SET owner_digest_sent_on = :day "
-    "WHERE deleted_at IS NULL AND owner_digest_enabled "
+    "WHERE deleted_at IS NULL AND owner_digest_enabled AND owner_digest_slot = :slot "
     "AND owner_digest_sent_on IS DISTINCT FROM :day RETURNING owner_digest_sent_on"
 )
+#: The resumable walk of each slot; the evening keeps the name it had before mornings.
+_WALKS: Final[dict[str, str]] = {"evening": "owner_digests", "morning": "owner_digests_morning"}
 _RELEASE = text(
     "UPDATE organizations SET owner_digest_sent_on = :previous "
     "WHERE deleted_at IS NULL AND owner_digest_sent_on = :day"
@@ -101,15 +111,15 @@ async def _send_email(summary: DailySummary, recipients: list[str]) -> int:
     return delivered
 
 
-async def send_one(tenant_id: UUID, *, day: date) -> str:
-    """Claim, build, send, and release the claim when nothing landed."""
+async def send_one(tenant_id: UUID, *, day: date, slot: Slot = "evening") -> str:
+    """Claim `day`, build, send, and release the claim when nothing landed."""
     async with tenant_session(tenant_id) as session:
         previous = (await session.execute(_PREVIOUS)).scalar()
-        claimed = (await session.execute(_CLAIM, {"day": day})).first()
+        claimed = (await session.execute(_CLAIM, {"day": day, "slot": slot})).first()
         if claimed is None:
-            # Already claimed today, or the switch is off.
+            # Already claimed for that day, the switch is off, or the other slot is chosen.
             return "not_claimed"
-        summary = await build_summary(session, tenant_id=tenant_id, day=day)
+        summary = await build_summary(session, tenant_id=tenant_id, day=day, slot=slot)
         recipients = await account_recipients(session, tenant_id=tenant_id)
         destination = await resolve_destination(session, tenant_id)
     if summary.quiet:
@@ -138,22 +148,35 @@ async def send_one(tenant_id: UUID, *, day: date) -> str:
 
 
 async def send_owner_digests(ctx: dict[str, Any]) -> str:
-    """Every opted-in account, one at a time; one failure is counted, never allowed to stop
-    the rest."""
-    attempt = job_try(ctx)
-    day = datetime.now(UTC).astimezone(IST).date()
+    """The evening run: today so far, for every account that chose the evening."""
+    return await _send_slot(ctx, "evening")
+
+
+async def send_morning_digests(ctx: dict[str, Any]) -> str:
+    """The morning run: yesterday, for every account that chose the morning."""
+    return await _send_slot(ctx, "morning")
+
+
+async def _send_slot(job_ctx: dict[str, Any], slot: Slot) -> str:
+    """Every opted-in account of this slot, one at a time; one failure is counted, never
+    allowed to stop the rest."""
+    attempt = job_try(job_ctx)
+    today = datetime.now(UTC).astimezone(IST).date()
+    day = today - timedelta(days=1) if slot == "morning" else today
     async with admin_session() as directory:
-        tenants = [UUID(str(t)) for t in (await directory.execute(text(_OPTED_IN))).scalars()]
+        tenants = [
+            UUID(str(t)) for t in (await directory.execute(_OPTED_IN, {"slot": slot})).scalars()
+        ]
     counts: dict[str, int] = {}
     failed = probed = 0
     # Budgeted (`fleet_walk`): past `job_timeout` arq cancels the run and never retries it, so
     # every account after that point would get no summary that evening. A pass that stops
     # here retries instead, and the claims keep the accounts already sent from a second one.
     budget = WalkBudget()
-    async for tenant_id in resumed_walk("owner_digests", tenants, budget):
+    async for tenant_id in resumed_walk(_WALKS[slot], tenants, budget):
         probed += 1
         try:
-            outcome = await send_one(tenant_id, day=day)
+            outcome = await send_one(tenant_id, day=day, slot=slot)
         except Exception as exc:
             failed += 1
             log.error(
@@ -186,4 +209,13 @@ async def send_owner_digests(ctx: dict[str, Any]) -> str:
     return f"accounts={len(tenants)} failed={failed} unreached={unreached} {summary}".strip()
 
 
-__all__ = ["SEND_HOUR", "SEND_MINUTE", "compose_email", "send_one", "send_owner_digests"]
+__all__ = [
+    "MORNING_HOUR",
+    "MORNING_MINUTE",
+    "SEND_HOUR",
+    "SEND_MINUTE",
+    "compose_email",
+    "send_morning_digests",
+    "send_one",
+    "send_owner_digests",
+]
