@@ -3,6 +3,37 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.6.1 — 28-Nov-2026
+
+- **API keys and a public API.** Integrations → Developers makes keys (the owner, with a code;
+  shown once, 90 days, limited to chosen agents, addresses and permissions). With a key your
+  server can read the account, balance, agents, numbers, calls and leads, place a call, send a
+  lead in, run a campaign and keep the do-not-call list. Every call still passes the same
+  checks as the dashboard. Each request is listed with what to do when one was refused.
+- **Events, sent and pulled.** Five new events: a call that did not connect, a missed inbound
+  call, a campaign's status, a person's consent, and a number added to do-not-call. A
+  destination that keeps failing is paused and you are told; Resume sends what waited. "Send a
+  test" sends a sample. Your server can also pull every event in order from the events feed.
+- **Rehearse the script.** Chat with a campaign or line's saved script beside Edit script; what
+  it would do (book a call-back, send a message) is shown as "not run", and a problem has a
+  "Fix this in the script" button.
+- **Pip changes only what you asked.** A typed change rewrites just the steps it touches.
+- **Your "Never" rules are kept.** A script line that breaks one is held back before it goes
+  live, a practice call that breaks one fails, and a real call that breaks one is marked.
+- **Truer call summaries.** A summary never says a step was done when the call did not reach it,
+  and ends with where the call got to. Lead fields are things people say (crop, acres, a date),
+  never a status. Outcomes can say what counts and what does not ("thinking about it" is not a
+  no).
+- **Alerts you can shape.** Settings → Alerts: each alert by bell, computer, email or WhatsApp,
+  quiet hours, and a daily email limit. New: campaign finished, first lead and other
+  milestones, call-back reminders, and "left you a message". The daily summary can come in the
+  morning.
+- **Leads desk, notes and Find.** Leads has a Desk view by stage. Team notes on a lead or a
+  call. Ctrl+K (or the search icon) finds people, calls, agents, campaigns, lines and screens.
+- **How fast leads are called.** Leads & hours shows the typical wait, the share called within
+  a minute, and each source. Performance can be narrowed to an agent, campaign, line or
+  direction; the agents list says what each did today; a weekly call-quality row.
+
 ## 0.6.0 — 28-Nov-2026
 
 - One person is called at most 3 times in 24 hours, by every kind of call your agents place
